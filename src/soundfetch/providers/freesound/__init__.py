@@ -1,0 +1,1 @@
+"""Freesound.org provider."""

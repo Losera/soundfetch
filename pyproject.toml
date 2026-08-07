@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soundfetch"
+version = "0.1.0"
+description = "Batch sound/data collection — extract audio files across the internet (Freesound, Internet Archive, video)."
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "requests-mock>=1.11",
+]
+video = [
+    "yt-dlp>=2024.1",
+]
+
+[project.scripts]
+soundfetch = "soundfetch.cli:main"
+freesound-fetch = "soundfetch.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+markers = [
+    "live: requires real network access (Freesound tests also need FREESOUND_API_KEY; video tests also need yt-dlp installed). Run manually with `pytest -m live`; skipped by default.",
+]
+addopts = "-m 'not live'"
+testpaths = ["tests"]
