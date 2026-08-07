@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from soundfetch.core.downloader import DownloadError
-from soundfetch.core.model import DownloadResult, SearchPage, SoundRef
+from soundfetch.core.model import DownloadResult, SearchPage, SearchParams, SoundRef
 
 
 class FakeProvider:
@@ -22,11 +22,13 @@ class FakeProvider:
         self.pages = pages or []
         self.download_fn = download_fn
         self.search_calls: list[int] = []
+        self.search_params: list[SearchParams] = []
         self.download_calls: list[str] = []
 
     def search(self, params, *, progress=None) -> SearchPage:
         page = int(params.extra["page"])
         self.search_calls.append(page)
+        self.search_params.append(params)
         idx = page - 1
         if idx < len(self.pages):
             return self.pages[idx]

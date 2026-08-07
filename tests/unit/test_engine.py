@@ -75,7 +75,7 @@ def test_write_search_records_writes_listed_status(tmp_path: Path):
     manifest = tmp_path / "manifest.jsonl"
     refs = [make_ref("1", name="rain"), make_ref("2", name="thunder")]
 
-    write_search_records(manifest, refs, total=2)
+    write_search_records(manifest, refs)
 
     records = read_records(manifest)
     assert len(records) == 2

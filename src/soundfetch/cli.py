@@ -1,274 +1,166 @@
-"""soundfetch CLI — provider-first click surface."""
+"""soundfetch CLI — spec-driven click wrapper over the soundfetch API.
+
+Commands are generated from a small per-provider ``ProviderSpec``, so
+adding a source is one spec entry instead of a copy-pasted command group.
+Provider imports stay inside the ``build`` callables so
+``soundfetch --help`` never imports requests / yt-dlp.
+"""
 
 from __future__ import annotations
 
 import logging
 import os
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Callable
 
 import click
 
 from . import __version__
-from .core.provider import get_provider, provider_names
 
 log = logging.getLogger(__name__)
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 
-@click.group(context_settings=CONTEXT_SETTINGS)
-@click.version_option(version=__version__)
-@click.option("--verbose", is_flag=True, help="Debug logging.")
-@click.pass_context
-def main(ctx: click.Context, verbose: bool) -> None:
-    """soundfetch: batch sound/data collection across the internet."""
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
+# ---------------------------------------------------------------------------
+# ProviderSpec — declarative per-provider config for the CLI factory
+# ---------------------------------------------------------------------------
+
+_DOWNLOAD_CONTROL = ("resume", "overwrite", "rate_delay", "fail_fast")
+
+
+@dataclass(frozen=True)
+class ProviderSpec:
+    name: str
+    help: str
+    default_outdir: str
+    # Lazy provider factory: **opts → Provider (imports happen inside).
+    build: Callable[..., Any]
+    # Generic filter flags this provider supports (subset of common set).
+    filters: tuple[str, ...] = ("license",)
+    # Extra flags present only on `search` (e.g. sort, with_descriptors).
+    search_only: tuple[str, ...] = ()
+    # Extra flags present only on `download` (e.g. mode, quality, format).
+    download_only: tuple[str, ...] = ()
+    # Restrict --license to a Choice; None → free-form string.
+    license_choices: tuple[str, ...] | None = None
+    # Status display config.
+    status_labels: dict[str, str] = field(default_factory=dict)
+    status_missing_hint: dict[str, str] = field(default_factory=dict)
+    status_hint: str = ""
+    # Extra click commands attached to this provider group (e.g. auth).
+    extra_commands: dict[str, click.Command] = field(default_factory=dict)
+    # Optional help overrides.
+    search_help: str | None = None
+    download_help: str = (
+        "Download sounds: from a QUERY, or from --manifest FILE."
     )
-    ctx.ensure_object(dict)
-    _load_dotenv()
-    ctx.obj["verbose"] = verbose
-
-
-def _load_dotenv() -> None:
-    """Load .env from cwd if present (best-effort)."""
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv()
-    except ImportError:
-        pass
-
-
-def _provider(name: str):
-    """Build a provider instance, resolving env config."""
-    return get_provider(name)
+    license_help: str | None = None
 
 
 # ---------------------------------------------------------------------------
-# sources
+# Central option definitions (name → click.Option kwargs)
+# ---------------------------------------------------------------------------
+
+OPTION_DEFS: dict[str, dict[str, Any]] = {
+    "license": {"multiple": True, "help": "License short code (repeatable)."},
+    "duration": {"help": "Raw Solr range, e.g. '[1 TO 30]'."},
+    "tag": {"multiple": True, "help": "Require this tag (repeatable)."},
+    "gen_ai": {
+        "type": click.Choice(["allow", "deny", "unspecified", "any"]),
+        "help": "Filter by Freesound gen_ai_preference.",
+    },
+    "raw_filter": {"help": "Pass-through filter clause (advanced)."},
+    "sort": {"help": "Sort order (provider-specific)."},
+    "page_size": {
+        "default": 50,
+        "show_default": True,
+        "type": click.INT,
+        "help": "Results per page.",
+    },
+    "max_results": {
+        "default": None,
+        "type": click.INT,
+        "help": "Stop after N results (default: all pages).",
+    },
+    "manifest": {
+        "type": click.Path(),
+        "help": "Download from this manifest file instead of a QUERY.",
+    },
+    "resume": {
+        "flags": ["--resume/--no-resume"],
+        "is_flag": True,
+        "default": True,
+        "show_default": True,
+        "help": "Skip sounds already downloaded in the manifest.",
+    },
+    "overwrite": {"is_flag": True, "help": "Re-download even if present."},
+    "rate_delay": {
+        "default": 0.5,
+        "show_default": True,
+        "type": click.FLOAT,
+        "help": "Seconds between requests.",
+    },
+    "fail_fast": {"is_flag": True, "help": "Stop at the first download error."},
+    "mode": {
+        "type": click.Choice(["preview", "original"]),
+        "default": "preview",
+        "show_default": True,
+        "help": "Download previews or OAuth2-only originals.",
+    },
+    "quality": {
+        "type": click.Choice(["hq", "lq"]),
+        "default": "hq",
+        "show_default": True,
+        "help": "Preview quality.",
+    },
+    "format": {
+        "type": click.Choice(["mp3", "ogg"]),
+        "default": "mp3",
+        "show_default": True,
+        "help": "Preview format.",
+    },
+    "with_descriptors": {
+        "help": "Comma list, e.g. bpm,pitch,spectral_centroid.",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Provider build functions (lazy imports inside each)
 # ---------------------------------------------------------------------------
 
 
-@main.command("sources")
-def sources() -> None:
-    """List registered providers."""
-    for name in provider_names():
-        click.echo(name)
-
-
-# ---------------------------------------------------------------------------
-# freesound
-# ---------------------------------------------------------------------------
-
-
-@main.group()
-def freesound() -> None:
-    """Freesound.org source."""
-
-
-def _freesound_provider(mode: str, quality: str, fmt: str):
+def _build_freesound(**opts: Any):
     from .providers.freesound.provider import FreesoundProvider
 
-    return FreesoundProvider(mode=mode, preview_quality=quality, preview_format=fmt)
-
-
-def _filters(
-    licenses: tuple[str, ...],
-    duration: str | None,
-    tags: tuple[str, ...],
-    gen_ai: str | None,
-    raw_filter: str | None,
-) -> dict[str, str]:
-    result: dict[str, str] = {}
-    if licenses:
-        result["license"] = ",".join(licenses)
-    if duration:
-        result["duration"] = duration
-    if tags:
-        result["tag"] = ",".join(tags)
-    if gen_ai:
-        result["gen_ai"] = gen_ai
-    if raw_filter:
-        result["raw"] = raw_filter
-    return result
-
-
-@freesound.command("search")
-@click.argument("query")
-@click.option("-o", "--outdir", default="./freesound-out", show_default=True, type=click.Path())
-@click.option("--license", "licenses", multiple=True, type=click.Choice(["cc0", "cc-by", "cc-by-sa", "cc-by-nc", "any"]))
-@click.option("--duration", default=None, help="Raw Solr range, e.g. '[1 TO 30]'.")
-@click.option("--tag", "tags", multiple=True, help="Require this tag (repeatable).")
-@click.option("--gen-ai", "gen_ai", default=None, type=click.Choice(["allow", "deny", "unspecified", "any"]))
-@click.option("--raw-filter", "raw_filter", default=None, help="Pass-through Solr filter (advanced).")
-@click.option("--sort", "sort", default=None, help="Sort: score|duration_desc|...")
-@click.option("--page-size", default=50, show_default=True, type=int)
-@click.option("--max-results", default=None, type=int, help="Stop after N results (default: all pages).")
-@click.option("--with-descriptors", "with_descriptors", default=None, help="Comma list, e.g. bpm,pitch,spectral_centroid (mfcc opt-in).")
-def freesound_search(
-    query: str,
-    outdir: str,
-    licenses: tuple[str, ...],
-    duration: str | None,
-    tags: tuple[str, ...],
-    gen_ai: str | None,
-    raw_filter: str | None,
-    sort: str | None,
-    page_size: int,
-    max_results: int | None,
-    with_descriptors: str | None,
-) -> None:
-    """Search Freesound and write a manifest (no downloads)."""
-    from .core.engine import search_all, write_search_records
-    from .core.model import SearchParams
-
-    provider = _freesound_provider(mode="preview", quality="hq", fmt="mp3")
-    outdir_path = Path(outdir)
-    manifest = outdir_path / "manifest.jsonl"
-
-    params = SearchParams(
-        query=query,
-        filters=_filters(licenses, duration, tags, gen_ai, raw_filter),
-        page_size=page_size,
-        max_results=max_results,
-        sort=sort,
-        extra={"page": 1},
-    )
-    if with_descriptors:
-        params.extra["with_descriptors"] = [d.strip() for d in with_descriptors.split(",") if d.strip()]
-
-    refs = search_all(
-        provider,
-        params,
-        on_page=lambda result, page: click.echo(
-            f"page {page}: {len(result.results)} results (total {result.total})"
-        ),
+    return FreesoundProvider(
+        mode=opts.get("mode", "preview"),
+        preview_quality=opts.get("quality", "hq"),
+        preview_format=opts.get("format", "mp3"),
     )
 
-    write_search_records(manifest, refs, total=_last_total(refs))
-    click.echo(f"wrote {len(refs)} sound references to {manifest}")
+
+def _build_archive(**opts: Any):
+    from .providers.archive.provider import ArchiveProvider
+
+    return ArchiveProvider()
 
 
-def _last_total(refs) -> int:
-    return len(refs)
+def _build_video(**opts: Any):
+    from .providers.video.provider import VideoProvider
+
+    return VideoProvider()
 
 
-@freesound.command("download")
-@click.argument("query", required=False)
-@click.option("--manifest", "manifest_arg", default=None, type=click.Path())
-@click.option("-o", "--outdir", default="./freesound-out", show_default=True, type=click.Path())
-@click.option("--mode", "mode", default="preview", type=click.Choice(["preview", "original"]), show_default=True)
-@click.option("--quality", "quality", default="hq", type=click.Choice(["hq", "lq"]), show_default=True)
-@click.option("--format", "fmt", default="mp3", type=click.Choice(["mp3", "ogg"]), show_default=True)
-@click.option("--license", "licenses", multiple=True, type=click.Choice(["cc0", "cc-by", "cc-by-sa", "cc-by-nc", "any"]))
-@click.option("--duration", default=None, help="Raw Solr range, e.g. '[1 TO 30]'.")
-@click.option("--tag", "tags", multiple=True)
-@click.option("--gen-ai", "gen_ai", default=None, type=click.Choice(["allow", "deny", "unspecified", "any"]))
-@click.option("--raw-filter", "raw_filter", default=None)
-@click.option("--max-results", default=None, type=int)
-@click.option("--page-size", default=50, show_default=True, type=int)
-@click.option("--resume/--no-resume", default=True, show_default=True, help="Skip sounds already downloaded in the manifest.")
-@click.option("--overwrite", is_flag=True, help="Re-download even if present.")
-@click.option("--rate-delay", "rate_delay", default=0.5, show_default=True, type=float, help="Seconds between requests.")
-@click.option("--fail-fast", is_flag=True, help="Stop at the first download error.")
-def freesound_download(
-    query: str | None,
-    manifest_arg: str | None,
-    outdir: str,
-    mode: str,
-    quality: str,
-    fmt: str,
-    licenses: tuple[str, ...],
-    duration: str | None,
-    tags: tuple[str, ...],
-    gen_ai: str | None,
-    raw_filter: str | None,
-    max_results: int | None,
-    page_size: int,
-    resume: bool,
-    overwrite: bool,
-    rate_delay: float,
-    fail_fast: bool,
-) -> None:
-    """Download sounds: from a QUERY, or from --manifest FILE."""
-    from .core.engine import download_refs, search_all, write_search_records
-    from .core.manifest import read_records
-    from .core.model import SearchParams, SoundRef
-
-    outdir_path = Path(outdir)
-    manifest = Path(manifest_arg) if manifest_arg else outdir_path / "manifest.jsonl"
-
-    provider = _freesound_provider(mode=mode, quality=quality, fmt=fmt)
-
-    # Two inputs are valid: QUERY (search-then-download) or --manifest (download
-    # previously listed sounds). Exactly one is required.
-    if query:
-        params = SearchParams(
-            query=query,
-            filters=_filters(licenses, duration, tags, gen_ai, raw_filter),
-            page_size=page_size,
-            max_results=max_results,
-            extra={"page": 1},
-        )
-        refs = search_all(provider, params)
-        if not manifest_arg:
-            write_search_records(manifest, refs, total=len(refs))
-        click.echo(f"found {len(refs)} sounds")
-    elif manifest_arg:
-        refs = _refs_from_manifest(manifest)
-        click.echo(f"loaded {len(refs)} sounds from {manifest}")
-    else:
-        raise click.UsageError("provide a QUERY or --manifest FILE")
-
-    results = download_refs(
-        provider,
-        refs,
-        outdir_path,
-        manifest,
-        resume=resume,
-        overwrite=overwrite,
-        fail_fast=fail_fast,
-        rate_delay=rate_delay,
-    )
-    _report_downloads(results)
+# ---------------------------------------------------------------------------
+# Freesound-only auth command (genuinely provider-specific)
+# ---------------------------------------------------------------------------
 
 
-def _refs_from_manifest(manifest: Path) -> list[SoundRef]:
-    from .core.manifest import iter_latest
-    from .core.model import SoundRef
-
-    refs: list[SoundRef] = []
-    for record in iter_latest(manifest):
-        if record.get("status") == "downloaded" and record.get("local_file"):
-            continue  # already have it; download loop would skip anyway
-        refs.append(
-            SoundRef(
-                provider=record.get("provider", ""),
-                provider_id=str(record.get("provider_id", "")),
-                name=record.get("name", ""),
-                url=record.get("url", ""),
-                download_url=record.get("download_url"),
-                file_format=record.get("file_format"),
-                checksum=record.get("checksum"),
-                metadata=record.get("metadata") or {},
-            )
-        )
-    return refs
-
-
-def _report_downloads(results) -> None:
-    ok = sum(1 for r in results if r.status == "downloaded")
-    skipped = sum(1 for r in results if r.status == "skipped")
-    failed = sum(1 for r in results if r.status == "error")
-    click.echo(f"downloaded={ok} skipped={skipped} failed={failed}")
-    if failed:
-        sys.exit(1)
-
-
-@freesound.command("auth")
+@click.command("auth", help="Run the Freesound OAuth2 browser flow (needed for original downloads).")
 @click.option("--client-id", "client_id", default=None, envvar="FREESOUND_CLIENT_ID")
 @click.option("--client-secret", "client_secret", default=None, envvar="FREESOUND_CLIENT_SECRET")
 @click.option("--redirect-uri", "redirect_uri", default="http://localhost:8765/callback", show_default=True)
@@ -279,7 +171,6 @@ def freesound_auth(
     redirect_uri: str,
     refresh: bool,
 ) -> None:
-    """Run the Freesound OAuth2 browser flow (needed for original downloads)."""
     from .providers.freesound.auth import AuthError, OAuthClient, TokenStore, DEFAULT_CONFIG_DIR
 
     if not client_id or not client_secret:
@@ -301,313 +192,322 @@ def freesound_auth(
         raise click.ClickException(str(exc))
 
 
-@freesound.command("status")
-def freesound_status() -> None:
-    """Show what's configured for the Freesound source."""
-    from .providers.freesound.provider import FreesoundProvider
+# ---------------------------------------------------------------------------
+# ProviderSpec instances
+# ---------------------------------------------------------------------------
 
-    provider = FreesoundProvider()
-    status = provider.status()
-    for key, present in status.items():
-        click.echo(f"{key}: {'configured' if present else 'missing'}")
+SPECS: dict[str, ProviderSpec] = {
+    "freesound": ProviderSpec(
+        name="freesound",
+        help="Freesound.org source.",
+        default_outdir="./freesound-out",
+        build=_build_freesound,
+        filters=("license", "duration", "tag", "gen_ai", "raw_filter"),
+        search_only=("sort", "with_descriptors"),
+        download_only=("mode", "quality", "format"),
+        license_choices=("cc0", "cc-by", "cc-by-sa", "cc-by-nc", "any"),
+        search_help="Search Freesound and write a manifest (no downloads).",
+        status_labels={
+            "api_key": "api_key",
+            "client_id": "client_id",
+            "client_secret": "client_secret",
+            "oauth_token": "oauth_token",
+        },
+        extra_commands={"auth": freesound_auth},
+    ),
+    "archive": ProviderSpec(
+        name="archive",
+        help="Internet Archive source.",
+        default_outdir="./archive-out",
+        build=_build_archive,
+        filters=("license", "tag", "raw_filter"),
+        search_only=("sort",),
+        license_choices=("cc0", "cc-by", "cc-by-sa", "cc-by-nc", "any"),
+        search_help="Search Internet Archive and write a manifest (no downloads).",
+        status_hint="no configuration required (Internet Archive downloads need no auth)",
+    ),
+    "video": ProviderSpec(
+        name="video",
+        help="Video source (yt-dlp-based) — audio-only extraction from a URL or search.",
+        default_outdir="./video-out",
+        build=_build_video,
+        filters=("license",),
+        license_choices=("cc-by", "any"),
+        search_help=(
+            "Search or resolve videos and write a manifest (no downloads).\n\n"
+            "QUERY is either a search term (searched on YouTube) or a video, "
+            "playlist, or channel URL."
+        ),
+        license_help=(
+            "Best-effort only: YouTube's license field is free text, not an enum, "
+            "so only 'cc-by' is actually checked."
+        ),
+        status_labels={"yt_dlp_installed": "yt_dlp"},
+        status_missing_hint={
+            "yt_dlp_installed": 'run `pip install "soundfetch[video]"`'
+        },
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
-# archive
+# Click option / argument factories
 # ---------------------------------------------------------------------------
 
 
-@main.group()
-def archive() -> None:
-    """Internet Archive source."""
+def _opt(spec: ProviderSpec, name: str) -> click.Option:
+    defs = dict(OPTION_DEFS[name])
+    flags: list[str] = defs.pop("flags", [f"--{name.replace('_', '-')}"])
+    # Per-spec overrides.
+    if name == "license":
+        if spec.license_choices:
+            defs["type"] = click.Choice(spec.license_choices)
+        if spec.license_help:
+            defs["help"] = spec.license_help
+    return click.Option(flags, **defs)
 
 
-def _archive_provider():
-    from .providers.archive.provider import ArchiveProvider
+def _make_params(spec: ProviderSpec, kind: str) -> list[click.Parameter]:
+    params: list[click.Parameter] = [
+        click.Argument(
+            ["query"],
+            required=(kind == "search"),
+            metavar="QUERY",
+        ),
+        click.Option(
+            ["-o", "--outdir"],
+            default=spec.default_outdir,
+            show_default=True,
+            type=click.Path(),
+            help="Output directory.",
+        ),
+    ]
+    if kind == "download":
+        params.append(_opt(spec, "manifest"))
+    # Generic filter flags.
+    for fname in spec.filters:
+        params.append(_opt(spec, fname))
+    # Provider-specific extra flags.
+    if kind == "search":
+        for fname in spec.search_only:
+            params.append(_opt(spec, fname))
+    else:
+        for fname in spec.download_only:
+            params.append(_opt(spec, fname))
+        for fname in _DOWNLOAD_CONTROL:
+            params.append(_opt(spec, fname))
+    # Common paging options (order: page_size then max_results for search,
+    # reversed for download to match historical CLI feel).
+    if kind == "search":
+        params.append(_opt(spec, "page_size"))
+        params.append(_opt(spec, "max_results"))
+    else:
+        params.append(_opt(spec, "max_results"))
+        params.append(_opt(spec, "page_size"))
+    return params
 
-    return ArchiveProvider()
+
+# ---------------------------------------------------------------------------
+# Generic command bodies (shared by every provider)
+# ---------------------------------------------------------------------------
 
 
-def _archive_filters(
-    licenses: tuple[str, ...], tags: tuple[str, ...], raw_filter: str | None
-) -> dict[str, str]:
-    result: dict[str, str] = {}
-    if licenses:
-        result["license"] = ",".join(licenses)
-    if tags:
-        result["tag"] = ",".join(tags)
-    if raw_filter:
-        result["raw"] = raw_filter
-    return result
+def _search_extra(spec: ProviderSpec, opts: dict[str, Any]) -> dict[str, Any]:
+    extra: dict[str, Any] = {"page": 1}
+    desc = opts.get("with_descriptors")
+    if desc:
+        extra["with_descriptors"] = [
+            d.strip() for d in desc.split(",") if d.strip()
+        ]
+    return extra
 
 
-@archive.command("search")
-@click.argument("query")
-@click.option("-o", "--outdir", default="./archive-out", show_default=True, type=click.Path())
-@click.option("--license", "licenses", multiple=True, type=click.Choice(["cc0", "cc-by", "cc-by-sa", "cc-by-nc", "any"]))
-@click.option("--tag", "tags", multiple=True, help="Match this Internet Archive subject (repeatable).")
-@click.option("--raw-filter", "raw_filter", default=None, help="Pass-through Lucene clause (advanced).")
-@click.option("--sort", "sort", default=None, help="Sort, e.g. 'downloads desc'.")
-@click.option("--page-size", default=50, show_default=True, type=int)
-@click.option("--max-results", default=None, type=int, help="Stop after N results (default: all pages).")
-def archive_search(
-    query: str,
-    outdir: str,
-    licenses: tuple[str, ...],
-    tags: tuple[str, ...],
-    raw_filter: str | None,
-    sort: str | None,
-    page_size: int,
-    max_results: int | None,
-) -> None:
-    """Search Internet Archive and write a manifest (no downloads)."""
-    from .core.engine import search_all, write_search_records
-    from .core.model import SearchParams
+def _run_search(name: str, **opts: Any) -> None:
+    from . import api
 
-    provider = _archive_provider()
-    outdir_path = Path(outdir)
-    manifest = outdir_path / "manifest.jsonl"
+    spec = SPECS[name]
+    outdir = Path(opts["outdir"])
+    manifest = outdir / "manifest.jsonl"
+    provider = spec.build(**opts)
 
-    params = SearchParams(
-        query=query,
-        filters=_archive_filters(licenses, tags, raw_filter),
-        page_size=page_size,
-        max_results=max_results,
-        sort=sort,
-        extra={"page": 1},
-    )
-    refs = search_all(
-        provider,
-        params,
+    refs = api.search(
+        opts["query"],
+        provider=spec.name,
+        providers={spec.name: provider},
+        license=opts.get("license"),
+        duration=opts.get("duration"),
+        tag=opts.get("tag"),
+        gen_ai=opts.get("gen_ai"),
+        raw_filter=opts.get("raw_filter"),
+        sort=opts.get("sort"),
+        page_size=opts["page_size"],
+        max_results=opts["max_results"],
+        extra=_search_extra(spec, opts),
         on_page=lambda result, page: click.echo(
             f"page {page}: {len(result.results)} results (total {result.total})"
         ),
     )
 
-    write_search_records(manifest, refs, total=len(refs))
+    api.save_search(refs, manifest)
     click.echo(f"wrote {len(refs)} sound references to {manifest}")
 
 
-@archive.command("download")
-@click.argument("query", required=False)
-@click.option("--manifest", "manifest_arg", default=None, type=click.Path())
-@click.option("-o", "--outdir", default="./archive-out", show_default=True, type=click.Path())
-@click.option("--license", "licenses", multiple=True, type=click.Choice(["cc0", "cc-by", "cc-by-sa", "cc-by-nc", "any"]))
-@click.option("--tag", "tags", multiple=True)
-@click.option("--raw-filter", "raw_filter", default=None)
-@click.option("--max-results", default=None, type=int)
-@click.option("--page-size", default=50, show_default=True, type=int)
-@click.option("--resume/--no-resume", default=True, show_default=True, help="Skip sounds already downloaded in the manifest.")
-@click.option("--overwrite", is_flag=True, help="Re-download even if present.")
-@click.option("--rate-delay", "rate_delay", default=0.5, show_default=True, type=float, help="Seconds between requests.")
-@click.option("--fail-fast", is_flag=True, help="Stop at the first download error.")
-def archive_download(
-    query: str | None,
-    manifest_arg: str | None,
-    outdir: str,
-    licenses: tuple[str, ...],
-    tags: tuple[str, ...],
-    raw_filter: str | None,
-    max_results: int | None,
-    page_size: int,
-    resume: bool,
-    overwrite: bool,
-    rate_delay: float,
-    fail_fast: bool,
-) -> None:
-    """Download sounds: from a QUERY, or from --manifest FILE."""
-    from .core.engine import download_refs, search_all, write_search_records
-    from .core.model import SearchParams
+def _run_download(name: str, **opts: Any) -> None:
+    from . import api
 
-    outdir_path = Path(outdir)
-    manifest = Path(manifest_arg) if manifest_arg else outdir_path / "manifest.jsonl"
-    provider = _archive_provider()
+    spec = SPECS[name]
+    outdir = Path(opts["outdir"])
+    manifest_arg: str | None = opts.get("manifest")
+    manifest = Path(manifest_arg) if manifest_arg else outdir / "manifest.jsonl"
+    query: str | None = opts.get("query")
+    provider = spec.build(**opts)
 
     if query:
-        params = SearchParams(
-            query=query,
-            filters=_archive_filters(licenses, tags, raw_filter),
-            page_size=page_size,
-            max_results=max_results,
-            extra={"page": 1},
+        refs = api.search(
+            query,
+            provider=spec.name,
+            providers={spec.name: provider},
+            license=opts.get("license"),
+            duration=opts.get("duration"),
+            tag=opts.get("tag"),
+            gen_ai=opts.get("gen_ai"),
+            raw_filter=opts.get("raw_filter"),
+            page_size=opts["page_size"],
+            max_results=opts["max_results"],
+            extra=_search_extra(spec, opts),
         )
-        refs = search_all(provider, params)
         if not manifest_arg:
-            write_search_records(manifest, refs, total=len(refs))
+            api.save_search(refs, manifest)
         click.echo(f"found {len(refs)} sounds")
     elif manifest_arg:
-        refs = _refs_from_manifest(manifest)
+        refs = api.refs_from_manifest(manifest)
         click.echo(f"loaded {len(refs)} sounds from {manifest}")
     else:
         raise click.UsageError("provide a QUERY or --manifest FILE")
 
-    results = download_refs(
-        provider,
+    results = api.download(
         refs,
-        outdir_path,
-        manifest,
-        resume=resume,
-        overwrite=overwrite,
-        fail_fast=fail_fast,
-        rate_delay=rate_delay,
+        dest_dir=outdir,
+        manifest=manifest,
+        resume=opts["resume"],
+        overwrite=opts["overwrite"],
+        fail_fast=opts["fail_fast"],
+        rate_delay=opts["rate_delay"],
+        providers={spec.name: provider},
     )
     _report_downloads(results)
 
 
-@archive.command("status")
-def archive_status() -> None:
-    """Show what's configured for the Internet Archive source."""
-    click.echo("no configuration required (Internet Archive downloads need no auth)")
+def _run_status(name: str, **_opts: Any) -> None:
+    spec = SPECS[name]
+    if spec.status_hint:
+        click.echo(spec.status_hint)
+        return
+    provider = spec.build()
+    for key, present in provider.status().items():
+        label = spec.status_labels.get(key, key)
+        if present:
+            click.echo(f"{label}: configured")
+        else:
+            hint = spec.status_missing_hint.get(key)
+            click.echo(f"{label}: missing" + (f" ({hint})" if hint else ""))
+
+
+def _report_downloads(results) -> None:
+    ok = sum(1 for r in results if r.status == "downloaded")
+    skipped = sum(1 for r in results if r.status == "skipped")
+    failed = sum(1 for r in results if r.status == "error")
+    click.echo(f"downloaded={ok} skipped={skipped} failed={failed}")
+    if failed:
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
-# video
+# Group / command factory
 # ---------------------------------------------------------------------------
 
 
-@main.group()
-def video() -> None:
-    """Video source (yt-dlp-based) — audio-only extraction from a URL or search."""
+def _make_group(spec: ProviderSpec) -> click.Group:
+    group = click.Group(name=spec.name, help=spec.help)
 
-
-def _video_provider():
-    from .providers.video.provider import VideoProvider
-
-    return VideoProvider()
-
-
-def _video_filters(license_: str | None) -> dict[str, str]:
-    return {"license": license_} if license_ else {}
-
-
-_VIDEO_LICENSE_HELP = (
-    "Best-effort only: YouTube's license field is free text, not an enum, so "
-    "only 'cc-by' is actually checked."
-)
-
-
-@video.command("search")
-@click.argument("query")
-@click.option("-o", "--outdir", default="./video-out", show_default=True, type=click.Path())
-@click.option("--license", "license_", default=None, type=click.Choice(["cc-by", "any"]), help=_VIDEO_LICENSE_HELP)
-@click.option("--page-size", default=50, show_default=True, type=int)
-@click.option(
-    "--max-results",
-    default=None,
-    type=int,
-    help="Cap on results. For a free-text QUERY this is also the total fetched up "
-    "front (yt-dlp search has no pagination); default 50. Not a hard cap for a "
-    "playlist/channel URL.",
-)
-def video_search(
-    query: str,
-    outdir: str,
-    license_: str | None,
-    page_size: int,
-    max_results: int | None,
-) -> None:
-    """Search or resolve videos and write a manifest (no downloads).
-
-    QUERY is either a search term (searched on YouTube) or a video, playlist,
-    or channel URL.
-    """
-    from .core.engine import search_all, write_search_records
-    from .core.model import SearchParams
-
-    provider = _video_provider()
-    outdir_path = Path(outdir)
-    manifest = outdir_path / "manifest.jsonl"
-
-    params = SearchParams(
-        query=query,
-        filters=_video_filters(license_),
-        page_size=page_size,
-        max_results=max_results,
-        extra={"page": 1},
+    search_help = spec.search_help or (
+        f"Search {spec.name} and write a manifest (no downloads)."
     )
-    refs = search_all(
-        provider,
-        params,
-        on_page=lambda result, page: click.echo(
-            f"page {page}: {len(result.results)} results (total {result.total})"
-        ),
-    )
-
-    write_search_records(manifest, refs, total=len(refs))
-    click.echo(f"wrote {len(refs)} sound references to {manifest}")
-
-
-@video.command("download")
-@click.argument("query", required=False)
-@click.option("--manifest", "manifest_arg", default=None, type=click.Path())
-@click.option("-o", "--outdir", default="./video-out", show_default=True, type=click.Path())
-@click.option("--license", "license_", default=None, type=click.Choice(["cc-by", "any"]), help=_VIDEO_LICENSE_HELP)
-@click.option("--max-results", default=None, type=int)
-@click.option("--page-size", default=50, show_default=True, type=int)
-@click.option("--resume/--no-resume", default=True, show_default=True, help="Skip sounds already downloaded in the manifest.")
-@click.option("--overwrite", is_flag=True, help="Re-download even if present.")
-@click.option("--rate-delay", "rate_delay", default=0.5, show_default=True, type=float, help="Seconds between requests.")
-@click.option("--fail-fast", is_flag=True, help="Stop at the first download error.")
-def video_download(
-    query: str | None,
-    manifest_arg: str | None,
-    outdir: str,
-    license_: str | None,
-    max_results: int | None,
-    page_size: int,
-    resume: bool,
-    overwrite: bool,
-    rate_delay: float,
-    fail_fast: bool,
-) -> None:
-    """Download audio: from a QUERY (search term or URL), or from --manifest FILE."""
-    from .core.engine import download_refs, search_all, write_search_records
-    from .core.model import SearchParams
-
-    outdir_path = Path(outdir)
-    manifest = Path(manifest_arg) if manifest_arg else outdir_path / "manifest.jsonl"
-    provider = _video_provider()
-
-    if query:
-        params = SearchParams(
-            query=query,
-            filters=_video_filters(license_),
-            page_size=page_size,
-            max_results=max_results,
-            extra={"page": 1},
+    group.add_command(
+        click.Command(
+            name="search",
+            params=_make_params(spec, "search"),
+            callback=lambda _n=spec.name, **o: _run_search(_n, **o),
+            help=search_help,
         )
-        refs = search_all(provider, params)
-        if not manifest_arg:
-            write_search_records(manifest, refs, total=len(refs))
-        click.echo(f"found {len(refs)} sounds")
-    elif manifest_arg:
-        refs = _refs_from_manifest(manifest)
-        click.echo(f"loaded {len(refs)} sounds from {manifest}")
-    else:
-        raise click.UsageError("provide a QUERY or --manifest FILE")
-
-    results = download_refs(
-        provider,
-        refs,
-        outdir_path,
-        manifest,
-        resume=resume,
-        overwrite=overwrite,
-        fail_fast=fail_fast,
-        rate_delay=rate_delay,
     )
-    _report_downloads(results)
+    group.add_command(
+        click.Command(
+            name="download",
+            params=_make_params(spec, "download"),
+            callback=lambda _n=spec.name, **o: _run_download(_n, **o),
+            help=spec.download_help,
+        )
+    )
+    group.add_command(
+        click.Command(
+            name="status",
+            params=[],
+            callback=lambda _n=spec.name, **o: _run_status(_n, **o),
+            help="Show what's configured for this source.",
+        )
+    )
+    for cmd_name, cmd in spec.extra_commands.items():
+        group.add_command(cmd)
+    return group
 
 
-@video.command("status")
-def video_status() -> None:
-    """Show what's configured for the video source."""
-    provider = _video_provider()
-    if provider.status()["yt_dlp_installed"]:
-        click.echo("yt_dlp: installed")
-    else:
-        click.echo('yt_dlp: missing (run `pip install "soundfetch[video]"`)')
+# ---------------------------------------------------------------------------
+# Root CLI
+# ---------------------------------------------------------------------------
 
+
+def _load_dotenv() -> None:
+    """Load .env from cwd if present (best-effort)."""
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
+
+
+@click.group(context_settings=CONTEXT_SETTINGS)
+@click.version_option(version=__version__)
+@click.option("--verbose", is_flag=True, help="Debug logging.")
+@click.pass_context
+def main(ctx: click.Context, verbose: bool) -> None:
+    """soundfetch: batch sound/data collection across the internet."""
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+    ctx.ensure_object(dict)
+    _load_dotenv()
+    ctx.obj["verbose"] = verbose
+
+
+@main.command("sources")
+def sources() -> None:
+    """List registered providers."""
+    from .core.provider import provider_names as _provider_names
+
+    for name in _provider_names():
+        spec = SPECS.get(name)
+        if spec:
+            click.echo(f"{name} — {spec.help}")
+        else:
+            click.echo(name)
+
+
+# Register provider groups.
+for _name, _spec in SPECS.items():
+    main.add_command(_make_group(_spec))
 
 if __name__ == "__main__":
     main()

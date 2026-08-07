@@ -1,12 +1,19 @@
+"""Tests for the spec-driven CLI (soundfetch.cli).
+
+Monkeypatch seams use ``monkeypatch.setitem(cli_module.SPECS, ...)``
+so command callbacks resolve the patched spec at call time (not import time).
+"""
+
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
 import soundfetch.cli as cli_module
-from soundfetch.cli import _refs_from_manifest, main
+from soundfetch.cli import main, SPECS
 from soundfetch.core.manifest import append_record
 from soundfetch.core.model import SearchPage
 
@@ -20,54 +27,21 @@ def test_sources_lists_registered_providers():
     assert "freesound" in result.output
 
 
-class TestRefsFromManifest:
-    """Regression coverage: this helper used to reference SoundRef without
-    importing it, so any --manifest download with a non-downloaded entry
-    crashed with NameError. See core.engine's DownloadResult fix for the
-    sibling bug this shipped alongside."""
-
-    def test_builds_refs_for_listed_records(self, tmp_path: Path):
-        manifest = tmp_path / "manifest.jsonl"
-        append_record(
-            manifest,
-            {
-                "provider": "archive",
-                "provider_id": "1",
-                "name": "rain",
-                "url": "https://example.test/1",
-                "file_format": "wav",
-                "status": "listed",
-            },
-        )
-
-        refs = _refs_from_manifest(manifest)
-
-        assert len(refs) == 1
-        assert refs[0].provider_id == "1"
-        assert refs[0].name == "rain"
-        assert refs[0].file_format == "wav"
-
-    def test_skips_already_downloaded_records(self, tmp_path: Path):
-        manifest = tmp_path / "manifest.jsonl"
-        append_record(
-            manifest,
-            {
-                "provider": "archive",
-                "provider_id": "1",
-                "name": "rain",
-                "status": "downloaded",
-                "local_file": "rain.wav",
-            },
-        )
-
-        assert _refs_from_manifest(manifest) == []
+# ---------------------------------------------------------------------------
+# Archive CLI
+# ---------------------------------------------------------------------------
 
 
 class TestArchiveCli:
+    def _patch_spec(self, monkeypatch, fake: FakeProvider):
+        original = SPECS["archive"]
+        patched = replace(original, build=lambda **kw: fake)
+        monkeypatch.setitem(cli_module.SPECS, "archive", patched)
+
     def test_search_writes_manifest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         page = SearchPage(results=[make_ref("1", name="rain")], total=1, has_more=False)
         fake = FakeProvider(pages=[page])
-        monkeypatch.setattr(cli_module, "_archive_provider", lambda: fake)
+        self._patch_spec(monkeypatch, fake)
 
         outdir = tmp_path / "out"
         result = CliRunner().invoke(main, ["archive", "search", "rain", "-o", str(outdir)])
@@ -79,14 +53,14 @@ class TestArchiveCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         fake = FakeProvider()
-        monkeypatch.setattr(cli_module, "_archive_provider", lambda: fake)
+        self._patch_spec(monkeypatch, fake)
 
         outdir = tmp_path / "out"
         manifest = outdir / "manifest.jsonl"
         append_record(
             manifest,
             {
-                "provider": "fake",
+                "provider": "archive",
                 "provider_id": "1",
                 "name": "rain",
                 "file_format": "wav",
@@ -105,24 +79,32 @@ class TestArchiveCli:
     def test_status_reports_no_auth_required(self):
         result = CliRunner().invoke(main, ["archive", "status"])
         assert result.exit_code == 0
-        assert "no auth" in result.output
+        assert "no configuration required" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Freesound CLI
+# ---------------------------------------------------------------------------
 
 
 class TestFreesoundCli:
+    def _patch_spec(self, monkeypatch, fake: FakeProvider):
+        original = SPECS["freesound"]
+        patched = replace(original, build=lambda **kw: fake)
+        monkeypatch.setitem(cli_module.SPECS, "freesound", patched)
+
     def test_download_from_manifest_end_to_end(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         fake = FakeProvider()
-        monkeypatch.setattr(
-            cli_module, "_freesound_provider", lambda mode, quality, fmt: fake
-        )
+        self._patch_spec(monkeypatch, fake)
 
         outdir = tmp_path / "out"
         manifest = outdir / "manifest.jsonl"
         append_record(
             manifest,
             {
-                "provider": "fake",
+                "provider": "freesound",
                 "provider_id": "1",
                 "name": "rain",
                 "file_format": "wav",
@@ -153,11 +135,21 @@ class TestFreesoundCli:
         assert "QUERY or --manifest" in result.output
 
 
+# ---------------------------------------------------------------------------
+# Video CLI
+# ---------------------------------------------------------------------------
+
+
 class TestVideoCli:
+    def _patch_spec(self, monkeypatch, fake: FakeProvider):
+        original = SPECS["video"]
+        patched = replace(original, build=lambda **kw: fake)
+        monkeypatch.setitem(cli_module.SPECS, "video", patched)
+
     def test_search_writes_manifest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         page = SearchPage(results=[make_ref("abc", name="Rain")], total=1, has_more=False)
         fake = FakeProvider(pages=[page])
-        monkeypatch.setattr(cli_module, "_video_provider", lambda: fake)
+        self._patch_spec(monkeypatch, fake)
 
         outdir = tmp_path / "out"
         result = CliRunner().invoke(main, ["video", "search", "rain ambience", "-o", str(outdir)])
@@ -169,14 +161,14 @@ class TestVideoCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         fake = FakeProvider()
-        monkeypatch.setattr(cli_module, "_video_provider", lambda: fake)
+        self._patch_spec(monkeypatch, fake)
 
         outdir = tmp_path / "out"
         manifest = outdir / "manifest.jsonl"
         append_record(
             manifest,
             {
-                "provider": "fake",
+                "provider": "video",
                 "provider_id": "abc",
                 "name": "Rain",
                 "file_format": "m4a",

@@ -131,19 +131,34 @@ The core/provider split is the load-bearing design decision — read
   404/401 on direct download and are useless to a batch downloader; license
   codes map to `licenseurl` wildcard patterns (IA has no license enum) and
   `tag` maps to IA's `subject` field.
-- **`cli.py`** — click group wiring (`soundfetch <provider> <verb>`).
-  Keeps provider imports inside command functions (not at module level)
-  so `soundfetch --help` doesn't pay the cost of importing every
-  provider's dependencies. `_refs_from_manifest()` and
-  `_report_downloads()` are provider-agnostic and shared by every
-  provider's `download` command — the manifest record shape coming out of
-  `core/engine.py` is identical regardless of source.
+- **`api.py`** — the public Python library, and the single entry point the
+  CLI wraps. `search()` builds the provider-agnostic filters dict and calls
+  `core.engine.search_all()`; `download()` groups refs by `ref.provider`
+  and dispatches each group to its provider (so mixed-provider manifests
+  work); `save_search()` / `refs_from_manifest()` bridge to the manifest.
+  Providers resolve via injected `providers=` dict first, else the lazy
+  REGISTRY. Everything here is provider-agnostic; the CLI in `cli.py` is a
+  thin spec-driven wrapper over it.
+- **`cli.py`** — spec-driven click wiring (`soundfetch <provider> <verb>`).
+  Each provider is one `ProviderSpec` entry (name, default outdir, lazy
+  `build` factory, filter flags, status display, extra commands); the
+  generic command factory (`_make_group` → `search`/`download`/`status`)
+  derives each command's click params from the spec, and shared command
+  bodies (`_run_search`, `_run_download`, `_run_status`, `_report_downloads`)
+  run every provider. Adding a source is one `ProviderSpec` + one lazy
+  `build` function, not a copy-pasted command group. Lazy imports inside
+  `build` keep `soundfetch --help` from importing any provider's
+  dependencies. Command callbacks resolve `SPECS[name]` at call time (not
+  import), so tests swap providers via
+  `monkeypatch.setitem(cli_module.SPECS, name, replace(spec, build=...))`.
+  `_refs_from_manifest` now lives in `api.py`; `_report_downloads` stays
+  here (echo + nonzero exit on failure is CLI behavior).
 
 ### Design decisions worth knowing before changing things
 
 - Search/download flows go through `core/engine.py`, never call a
-  provider's `search`/`download` directly from `cli.py`, to keep
-  pagination/resume/checkpointing centralized.
+  provider's `search`/`download` directly from `cli.py` or `api.py`, to
+  keep pagination/resume/checkpointing centralized.
 - The manifest is the checkpoint. There's no separate resume-state file —
   `download_refs(resume=True)` reads the manifest and skips sounds whose
   latest record has `status: "downloaded"` and the local file still

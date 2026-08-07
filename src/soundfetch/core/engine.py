@@ -51,7 +51,7 @@ def search_all(
     return collected
 
 
-def write_search_records(manifest: Path, refs: list[SoundRef], total: int) -> None:
+def write_search_records(manifest: Path, refs: list[SoundRef]) -> None:
     """Write one manifest record per sound found (status: 'listed')."""
     for ref in refs:
         record = ref_record(ref)

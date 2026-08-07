@@ -90,6 +90,58 @@ metadata (license, tags, duration, samplerate, format, ...), and download status
 
 Consume it with pandas: `pd.read_json("out/manifest.jsonl", lines=True)`.
 
+## Python API
+
+`soundfetch` is also a library — the CLI is a thin wrapper over the same
+functions. Everything provider-agnostic; pass `provider=` to pick a source
+(`freesound`, `archive`, `video`), or inject a configured provider instance
+for explicit API-key/options control.
+
+```python
+import soundfetch
+
+# Search a source (pure: returns SoundRefs, writes nothing)
+refs = soundfetch.search(
+    "piano",
+    provider="freesound",
+    license="cc0",
+    max_results=100,
+)
+soundfetch.save_search(refs, "out/manifest.jsonl")
+
+# Two-phase: review the manifest, then download from it (resumes by default)
+refs = soundfetch.refs_from_manifest("out/manifest.jsonl")
+results = soundfetch.download(refs, dest_dir="out/")
+
+# Mixed-provider manifests just work — download() groups refs by source
+```
+
+Explicit provider instances (e.g. an API key passed directly, or a custom
+provider):
+
+```python
+from soundfetch.providers.freesound.provider import FreesoundProvider
+
+prov = FreesoundProvider(api_key="...")  # or let env vars resolve
+refs = soundfetch.search(
+    "piano",
+    providers={"freesound": prov},  # injected instance wins over provider=
+)
+```
+
+Manifest reads for the dataset-index use case:
+
+```python
+import soundfetch
+
+for record in soundfetch.iter_latest("out/manifest.jsonl"):
+    print(record["provider_id"], record["metadata"])
+```
+
+Top-level exports: `search`, `download`, `save_search`, `refs_from_manifest`,
+`read_records`, `iter_latest`, `latest_by_sound`, `ref_record`, plus the types
+`SoundRef`, `SearchParams`, `DownloadResult`, `Provider`, and `provider_names`.
+
 ## Development
 
 ```bash
