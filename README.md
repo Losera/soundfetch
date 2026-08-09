@@ -216,6 +216,25 @@ export_attribution("out/manifest.jsonl", dest_dir="out/")  # ATTRIBUTION.md
 Heavy dependencies (`datasets`, `webdataset`, `soundfile`) are imported lazily
 inside each function, so `import soundfetch.export` is cheap.
 
+## Live benchmarks
+
+The benchmark scripts run small real-network collections against Freesound and
+Internet Archive; add `--video` to include the video provider when `yt-dlp` is
+installed. Freesound requires `FREESOUND_API_KEY`.
+
+```bash
+# Black-box CLI benchmark and ASCII timing table
+python scripts/benchmark_cli.py --limit 3 --query rain
+
+# In-process API benchmark, CSV/JSON metrics, and four matplotlib charts
+pip install -e ".[bench]"
+python scripts/benchmark_api.py --limit 3 --query rain
+```
+
+Each run uses a fresh timestamped directory under `benchmarks/`. The API script
+writes `throughput.png`, `latency.png`, `sizes.png`, and `progress.png` at 150
+dpi. Both scripts exit nonzero if a source fails.
+
 ## Development
 
 ```bash

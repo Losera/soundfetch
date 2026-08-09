@@ -16,3 +16,4 @@ credentials.json
 # Output dirs (this tool writes out/ per invocation; keep them out of git)
 out/
 *.out/
+benchmarks/

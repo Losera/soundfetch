@@ -13,7 +13,7 @@
 
 ## Install
 
-- [pyproject.toml](https://github.com/Losera/soundfetch/blob/main/pyproject.toml): Build config, base deps (click, requests, python-dotenv), and every optional extra (`mcp`, `export`, `langchain`, `llamaindex`, `smolagents`, `agents`, `video`, `dev`).
+- [pyproject.toml](https://github.com/Losera/soundfetch/blob/main/pyproject.toml): Build config, base deps (click, requests, python-dotenv), and every optional extra (`mcp`, `export`, `bench`, `langchain`, `llamaindex`, `smolagents`, `agents`, `video`, `dev`).
 
 ```bash
 pip install soundfetch              # base CLI
@@ -71,6 +71,17 @@ export_attribution("out/manifest.jsonl")
 ## Agent adapters
 
 - [src/soundfetch/adapters/](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/adapters/__init__.py): Pre-built tool wrappers — `langchain_tools()`, `llamaindex_tools()`, `smolagents_tools()` — each returning framework-native tool objects over the same soundfetch functions.
+
+## Benchmarks
+
+- [scripts/benchmark_cli.py](https://github.com/Losera/soundfetch/blob/main/scripts/benchmark_cli.py): Live black-box CLI benchmark for Freesound + Internet Archive, with video opt-in and an ASCII timing/throughput table.
+- [scripts/benchmark_api.py](https://github.com/Losera/soundfetch/blob/main/scripts/benchmark_api.py): Live in-process API benchmark that writes CSV/JSON metrics and throughput, latency, size, and cumulative-progress charts.
+
+```bash
+python scripts/benchmark_cli.py --limit 3 --query rain
+pip install -e ".[bench]"
+python scripts/benchmark_api.py --limit 3 --query rain
+```
 
 ## Tests
 
