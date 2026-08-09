@@ -253,6 +253,7 @@ class TestStatus:
             "client_id": False,
             "client_secret": False,
             "oauth_token": False,
+            "oauth_token_expired": False,
         }
 
     def test_reports_configured_api_key(self, monkeypatch: pytest.MonkeyPatch):

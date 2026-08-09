@@ -195,10 +195,29 @@ def _wait_for_code(redirect_uri: str, timeout: float = 300.0) -> str:
     parsed = urlparse(redirect_uri)
     port = parsed.port or 8765
 
+    if _port_in_use("localhost", port):
+        raise AuthError(
+            f"cannot start the OAuth callback server: port {port} is already in use.\n"
+            f"Another soundfetch auth (or other process) is holding it — find it with\n"
+            f"`lsof -i :{port}` and stop it, then re-run. The port comes from the\n"
+            f"redirect URI, which must match your Freesound app registration exactly\n"
+            f"(current: {redirect_uri})."
+        )
+
     class Server(socketserver.TCPServer):
         allow_reuse_address = True
 
-    with Server(("localhost", port), Handler) as httpd:
+    try:
+        httpd = Server(("localhost", port), Handler)
+    except OSError as exc:
+        raise AuthError(
+            f"could not bind the OAuth callback server to localhost:{port} "
+            f"({exc.strerror or exc}). Check that no other process is using the "
+            f"port (`lsof -i :{port}`) and that --redirect-uri matches your "
+            f"Freesound app registration."
+        ) from exc
+
+    with httpd:
         httpd.timeout = 0.5
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -206,3 +225,15 @@ def _wait_for_code(redirect_uri: str, timeout: float = 300.0) -> str:
             if Handler.result:
                 return Handler.result
     raise AuthError(f"timed out waiting for authorization callback at {redirect_uri}")
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    """Return True if nothing can bind *host:port* right now."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((host, port))
+    except OSError:
+        return True
+    finally:
+        sock.close()
+    return False

@@ -56,6 +56,8 @@ class VideoProvider:
 
     def __init__(self, session: requests.Session | None = None):
         self.session = session or requests.Session()
+        # RateLimiter attached by core.engine once pacing is configured.
+        self.rate_limiter = None
         self._entries_cache: dict[str, list[dict]] = {}
 
     # -- Search -----------------------------------------------------------------
@@ -167,6 +169,7 @@ class VideoProvider:
             final_path,
             session=self.session,
             headers=audio_format.get("http_headers"),
+            limiter=self.rate_limiter,
         )
         return DownloadResult(local_path=final_path, bytes=written, status="downloaded")
 

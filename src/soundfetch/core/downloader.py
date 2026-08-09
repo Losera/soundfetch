@@ -10,7 +10,13 @@ from pathlib import Path
 
 import requests
 
-from .net import HttpError, RateLimitError, _attach_retry_after, parse_error
+from .net import (
+    HttpError,
+    RateLimitError,
+    _attach_retry_after,
+    _parse_retry_after,
+    parse_error,
+)
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +40,7 @@ def stream_to_file(
     checksum: str | None = None,
     attempts: int = 5,
     reporthook=None,
+    limiter=None,
 ) -> int:
     """Stream `url` into `dest`, resuming from an existing `.part` file.
 
@@ -42,7 +49,12 @@ def stream_to_file(
 
     `reporthook(downloaded, total)` is called after each chunk (total may be
     -1 if the server omits Content-Length).
+
+    ``limiter`` is a ``core.pacing.RateLimiter``; when given, one token is
+    consumed before the request so downloads share the provider's bucket.
     """
+    if limiter is not None:
+        limiter.acquire()
     session = session or requests.Session()
     part = dest.with_name(dest.name + ".part")
     part.parent.mkdir(parents=True, exist_ok=True)
@@ -100,7 +112,7 @@ def stream_to_file(
             retry_after = getattr(exc, "retry_after", None)
             if attempt + 1 >= attempts:
                 break
-            wait = float(retry_after) if retry_after else _backoff(attempt)
+            wait = _parse_retry_after(retry_after) or _backoff(attempt)
             log.warning("rate-limited; waiting %.1fs", wait)
             time.sleep(wait)
             # A 429 during range-resume may or may not have written anything;

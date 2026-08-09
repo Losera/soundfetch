@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "soundfetch"
-version = "0.2.0"
+version = "0.3.0"
 description = "Batch sound/data collection — extract audio files across the internet (Freesound, Internet Archive, video)."
 requires-python = ">=3.10"
 dependencies = [
@@ -21,12 +21,39 @@ dev = [
 video = [
     "yt-dlp>=2024.1",
 ]
+# Agent-usability extras — all imported lazily, none needed for the base CLI.
+mcp = [
+    "mcp>=1.0",
+]
+export = [
+    "datasets[audio]>=3.0",
+    "soundfile>=0.12",
+    "webdataset>=0.2",
+]
+langchain = [
+    "langchain-core>=0.3",
+]
+llamaindex = [
+    "llama-index-core>=0.12",
+]
+smolagents = [
+    "smolagents>=1.0",
+]
+# Extras can't reference other extras, so this lists the pins explicitly.
+agents = [
+    "langchain-core>=0.3",
+    "llama-index-core>=0.12",
+    "smolagents>=1.0",
+]
 
 [project.scripts]
 soundfetch = "soundfetch.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+soundfetch = ["py.typed"]
 
 [tool.pytest.ini_options]
 markers = [
