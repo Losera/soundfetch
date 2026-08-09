@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import random
 import time
+from email.utils import parsedate_to_datetime
 from typing import Callable, TypeVar
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -97,20 +99,38 @@ def retry(
     raise last_exc
 
 
+def _parse_retry_after(value: str | None, *, now: float | None = None) -> float:
+    """Parse a Retry-After header into seconds.
+
+    Accepts either a bare integer (``"3"``) or an HTTP-date
+    (``"Fri, 31 Dec 1999 23:59:59 GMT"``, per RFC 7231). HTTP-dates are
+    normalized to UTC and expressed as seconds-from-now. Any value over
+    300 s is capped so a misbehaving server can't stall a run.
+    """
+    if not value:
+        return 0.0
+    now = time.time() if now is None else now
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            when = parsedate_to_datetime(value)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=ZoneInfo("UTC"))
+            when_utc = when.astimezone(ZoneInfo("UTC"))
+            seconds = (when_utc.timestamp() - now)
+        except (TypeError, ValueError, OverflowError):
+            return 0.0
+    return max(0.0, min(300.0, seconds))
+
+
 def _retry_after_seconds(exc: RateLimitError) -> float:
     """Re-read the Retry-After header from the request the error came from.
 
     We stash the response header on the exception via a wrapper attribute set
     by the request helpers below.
     """
-    value = getattr(exc, "retry_after", None)
-    if not value:
-        return 0.0
-    try:
-        return float(value)
-    except ValueError:
-        # Retry-After can be an HTTP-date; fall back to default backoff.
-        return 0.0
+    return _parse_retry_after(getattr(exc, "retry_after", None))
 
 
 def get_json(
@@ -120,8 +140,16 @@ def get_json(
     params: dict | None = None,
     headers: dict | None = None,
     attempts: int = 5,
+    limiter=None,
 ) -> dict:
-    """GET JSON with retry; returns the parsed body."""
+    """GET JSON with retry; returns the parsed body.
+
+    ``limiter`` is a ``core.pacing.RateLimiter`` (or anything with an
+    ``acquire()``); when given, one token is consumed before each HTTP
+    call so paging/search/download all share a per-provider bucket.
+    """
+    if limiter is not None:
+        limiter.acquire()
     return retry(
         lambda: _get_json_once(session, url, params=params, headers=headers),
         attempts=attempts,

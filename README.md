@@ -41,6 +41,22 @@ soundfetch freesound status
 soundfetch sources
 ```
 
+Download parallelism & rate control:
+
+```bash
+# Download 4 files in parallel (token-bucket paced per provider)
+soundfetch freesound download "piano" -o out/ --workers 4
+
+# Cap at 2 requests/sec with the token-bucket Pacing (overrides --rate-delay)
+soundfetch archive download --manifest out/manifest.jsonl -o out/ --rate 2
+```
+
+`--workers N` downloads with N threads through a bounded pool (results still
+report in input order). `--rate R` throttles the run to at most R requests/sec
+via a shared token bucket that also paces search; the legacy `--rate-delay`
+(seconds between requests) remains the default and is overridden when `--rate`
+is given.
+
 ### Internet Archive
 
 No API key or auth needed — Internet Archive serves original-quality files to
@@ -141,6 +157,64 @@ for record in soundfetch.iter_latest("out/manifest.jsonl"):
 Top-level exports: `search`, `download`, `save_search`, `refs_from_manifest`,
 `read_records`, `iter_latest`, `latest_by_sound`, `ref_record`, plus the types
 `SoundRef`, `SearchParams`, `DownloadResult`, `Provider`, and `provider_names`.
+
+## Agents & MCP
+
+`soundfetch` speaks MCP and ships pre-built tool wrappers for agent frameworks.
+The same four tools are exposed everywhere: `search_sounds`,
+`download_manifest`, `check_provider_status`, `list_sources`.
+
+```bash
+pip install "soundfetch[mcp]"
+soundfetch mcp   # MCP server over stdio
+```
+
+Register it in Claude Desktop `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "soundfetch": { "command": "soundfetch", "args": ["mcp"] }
+  }
+}
+```
+
+Framework adapters (lazy imports — install only what you use):
+
+```python
+# LangChain
+pip install "soundfetch[langchain]"
+from soundfetch.adapters import langchain_tools
+tools = langchain_tools()
+
+# LlamaIndex
+pip install "soundfetch[llamaindex]"
+from soundfetch.adapters import llamaindex_tools
+tools = llamaindex_tools()
+
+# Smolagents
+pip install "soundfetch[smolagents]"
+from soundfetch.adapters import smolagents_tools
+tools = smolagents_tools()
+```
+
+`pip install "soundfetch[agents]"` installs all three.
+
+## Data exports
+
+Turn a completed manifest into ML-ready datasets straight from the JSONL:
+
+```python
+pip install "soundfetch[export]"
+from soundfetch.export import to_hf_dataset, to_webdataset, export_attribution
+
+ds = to_hf_dataset("out/manifest.jsonl")   # HuggingFace Dataset with Audio column
+to_webdataset("out/manifest.jsonl", "out/shard.tar")  # tar shards
+export_attribution("out/manifest.jsonl", dest_dir="out/")  # ATTRIBUTION.md
+```
+
+Heavy dependencies (`datasets`, `webdataset`, `soundfile`) are imported lazily
+inside each function, so `import soundfetch.export` is cheap.
 
 ## Development
 

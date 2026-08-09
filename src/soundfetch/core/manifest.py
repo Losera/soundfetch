@@ -47,5 +47,24 @@ def latest_by_sound(records: Iterable[dict[str, Any]]) -> dict[tuple[str, str], 
 
 
 def iter_latest(path: Path) -> Iterator[dict[str, Any]]:
-    """Yield the effective (latest) record for each sound in the manifest."""
-    yield from latest_by_sound(read_records(path)).values()
+    """Yield the effective (latest) record for each sound in the manifest.
+
+    Streams the file and keeps only the newest record per ``(provider,
+    provider_id)``, so superseded lines (re-searches, re-downloads) never
+    accumulate into a full object list before being dropped.
+    """
+    latest: dict[tuple[str, str], dict[str, Any]] = {}
+    if not path.exists():
+        return
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # torn last line from an interrupted append
+            key = (record.get("provider", ""), str(record.get("provider_id", "")))
+            latest[key] = record
+    yield from latest.values()

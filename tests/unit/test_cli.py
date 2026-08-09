@@ -76,6 +76,69 @@ class TestArchiveCli:
         assert fake.download_calls == ["1"]
         assert "downloaded=1" in result.output
 
+    def test_download_with_workers_parallel(self, tmp_path, monkeypatch):
+        """--workers > 1 downloads every ref (completion order is parallel)."""
+        fake = FakeProvider()
+        self._patch_spec(monkeypatch, fake)
+
+        outdir = tmp_path / "out"
+        manifest = outdir / "manifest.jsonl"
+        for i in range(4):
+            append_record(
+                manifest,
+                {
+                    "provider": "archive",
+                    "provider_id": str(i),
+                    "name": f"rain-{i}",
+                    "file_format": "wav",
+                    "status": "listed",
+                },
+            )
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "archive", "download",
+                "--manifest", str(manifest), "-o", str(outdir),
+                "--workers", "2",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert sorted(fake.download_calls) == ["0", "1", "2", "3"]
+        assert "downloaded=4" in result.output
+
+    def test_download_with_rate_pacing(self, tmp_path, monkeypatch):
+        """--rate wires a token-bucket Pacing into the download run."""
+        fake = FakeProvider()
+        self._patch_spec(monkeypatch, fake)
+
+        outdir = tmp_path / "out"
+        manifest = outdir / "manifest.jsonl"
+        append_record(
+            manifest,
+            {
+                "provider": "archive",
+                "provider_id": "1",
+                "name": "rain",
+                "file_format": "wav",
+                "status": "listed",
+            },
+        )
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "archive", "download",
+                "--manifest", str(manifest), "-o", str(outdir),
+                "--rate", "10",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert fake.download_calls == ["1"]
+        assert "downloaded=1" in result.output
+
     def test_status_reports_no_auth_required(self):
         result = CliRunner().invoke(main, ["archive", "status"])
         assert result.exit_code == 0
@@ -123,6 +186,8 @@ class TestFreesoundCli:
         monkeypatch.delenv("FREESOUND_API_KEY", raising=False)
         monkeypatch.delenv("FREESOUND_CLIENT_ID", raising=False)
         monkeypatch.delenv("FREESOUND_CLIENT_SECRET", raising=False)
+        # Prevent the repo-root .env from being loaded during the test.
+        monkeypatch.setattr("soundfetch.cli._load_dotenv", lambda: None)
 
         result = CliRunner().invoke(main, ["freesound", "status"])
 

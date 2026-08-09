@@ -96,6 +96,7 @@ def search(
     max_results: int | None = None,
     extra: dict[str, Any] | None = None,
     on_page: Callable[[Any, int], None] | None = None,
+    pacing=None,
 ) -> list[SoundRef]:
     """Search a provider and return ``SoundRef`` results (no files written).
 
@@ -130,7 +131,7 @@ def search(
         sort=sort,
         extra=extra or {"page": 1},
     )
-    return search_all(prov, params, on_page=on_page)
+    return search_all(prov, params, on_page=on_page, pacing=pacing)
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +148,8 @@ def download(
     overwrite: bool = False,
     fail_fast: bool = False,
     rate_delay: float = 0.0,
+    workers: int = 1,
+    pacing=None,
     providers: dict[str, Provider] | None = None,
 ) -> list[DownloadResult]:
     """Download refs, checkpointing each attempt to ``manifest``.
@@ -155,9 +158,13 @@ def download(
     dispatched to its registered provider (or an injected one via
     ``providers``).  Mixed-provider manifests therefore work correctly.
 
-    ``manifest`` defaults to ``dest_dir/manifest.jsonl``.
+    ``manifest`` defaults to ``dest_dir/manifest.jsonl``. ``workers > 1``
+    downloads each provider group in parallel (bounded pool); ``pacing`` (a
+    core.pacing.Pacing) paces every request across search + download so a
+    combined run stays under the provider's rate ceiling.
     """
-    refs = list(refs)
+    if not isinstance(refs, list):
+        refs = list(refs)
     if not refs:
         return []
     dest = Path(dest_dir)
@@ -180,6 +187,8 @@ def download(
                 overwrite=overwrite,
                 fail_fast=fail_fast,
                 rate_delay=rate_delay,
+                workers=workers,
+                pacing=pacing,
             )
         )
     return results
@@ -195,17 +204,23 @@ def save_search(refs: Iterable[SoundRef], manifest: str | Path) -> None:
     write_search_records(Path(manifest), list(refs))
 
 
-def refs_from_manifest(manifest: str | Path) -> list[SoundRef]:
+def refs_from_manifest(
+    manifest: str | Path,
+    *,
+    skip_downloaded: bool = True,
+) -> list[SoundRef]:
     """Reconstruct ``SoundRef`` entries from a manifest.
 
     Only the latest record per ``(provider, provider_id)`` is considered
-    (last-wins dedup).  Sounds already marked ``status: "downloaded"``
-    with a local file are skipped — feed the result into ``download()``
-    for checkpoint-resume behavior.
+    (last-wins dedup).  By default sounds already marked ``status:
+    "downloaded"`` with a local file are skipped — feed the result into
+    ``download()`` for checkpoint-resume behavior.  Pass
+    ``skip_downloaded=False`` to include them so ``download()``'s own
+    resume check can report them as ``skipped``.
     """
     refs: list[SoundRef] = []
     for record in iter_latest(Path(manifest)):
-        if record.get("status") == "downloaded" and record.get("local_file"):
+        if skip_downloaded and record.get("status") == "downloaded" and record.get("local_file"):
             continue
         refs.append(
             SoundRef(

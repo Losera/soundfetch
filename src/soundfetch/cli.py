@@ -8,10 +8,11 @@ Provider imports stay inside the ``build`` callables so
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -28,7 +29,7 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 # ProviderSpec — declarative per-provider config for the CLI factory
 # ---------------------------------------------------------------------------
 
-_DOWNLOAD_CONTROL = ("resume", "overwrite", "rate_delay", "fail_fast")
+_DOWNLOAD_CONTROL = ("resume", "overwrite", "rate_delay", "rate", "workers", "fail_fast")
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,17 @@ OPTION_DEFS: dict[str, dict[str, Any]] = {
         "type": click.FLOAT,
         "help": "Seconds between requests.",
     },
+    "rate": {
+        "default": None,
+        "type": click.FLOAT,
+        "help": "Max requests/sec via token-bucket pacing (overrides --rate-delay).",
+    },
+    "workers": {
+        "default": 1,
+        "show_default": True,
+        "type": click.INT,
+        "help": "Parallel download threads (default 1 = sequential).",
+    },
     "fail_fast": {"is_flag": True, "help": "Stop at the first download error."},
     "mode": {
         "type": click.Choice(["preview", "original"]),
@@ -125,6 +137,7 @@ OPTION_DEFS: dict[str, dict[str, Any]] = {
     "with_descriptors": {
         "help": "Comma list, e.g. bpm,pitch,spectral_centroid.",
     },
+    "json": {"is_flag": True, "help": "Emit JSON on stdout."},
 }
 
 
@@ -178,6 +191,16 @@ def freesound_auth(
             "FREESOUND_CLIENT_ID and FREESOUND_CLIENT_SECRET are required. "
             "Set them as env vars, in .env, or via --client-id/--client-secret."
         )
+    api_key = os.environ.get("FREESOUND_API_KEY")
+    if api_key and client_secret == api_key:
+        click.echo(
+            click.style(
+                "warning: FREESOUND_CLIENT_SECRET looks identical to FREESOUND_API_KEY. "
+                "These are different credentials — the secret is the OAuth app secret from "
+                "https://freesound.org/apiv2/apps/ (not your API key).",
+                fg="yellow",
+            )
+        )
     config_dir = Path(os.environ.get("SOUNDFETCH_CONFIG_DIR", DEFAULT_CONFIG_DIR))
     store = TokenStore(config_dir / "freesound.json")
     client = OAuthClient(client_id, client_secret, redirect_uri=redirect_uri, store=store)
@@ -212,6 +235,10 @@ SPECS: dict[str, ProviderSpec] = {
             "client_id": "client_id",
             "client_secret": "client_secret",
             "oauth_token": "oauth_token",
+            "oauth_token_expired": "oauth_token",
+        },
+        status_missing_hint={
+            "oauth_token_expired": "cached token is expired — run `soundfetch freesound auth --refresh`",
         },
         extra_commands={"auth": freesound_auth},
     ),
@@ -301,6 +328,8 @@ def _make_params(spec: ProviderSpec, kind: str) -> list[click.Parameter]:
     if kind == "search":
         params.append(_opt(spec, "page_size"))
         params.append(_opt(spec, "max_results"))
+        # Machine-readable output — search only (download stays human).
+        params.append(_opt(spec, "json"))
     else:
         params.append(_opt(spec, "max_results"))
         params.append(_opt(spec, "page_size"))
@@ -310,6 +339,32 @@ def _make_params(spec: ProviderSpec, kind: str) -> list[click.Parameter]:
 # ---------------------------------------------------------------------------
 # Generic command bodies (shared by every provider)
 # ---------------------------------------------------------------------------
+
+
+def _json_enabled(ctx: click.Context | None, opts: dict[str, Any]) -> bool:
+    """True when --json was given on the subcommand or the root group."""
+    return bool(opts.get("json")) or bool(ctx and ctx.obj.get("json"))
+
+
+def _emit_json(payload: dict[str, Any]) -> None:
+    click.echo(json.dumps(payload, indent=2, default=str))
+
+
+def _json_error(exc: BaseException) -> None:
+    """Emit a ``{"ok": false, "error": {...}}`` payload and exit nonzero."""
+    click.echo(
+        json.dumps(
+            {
+                "ok": False,
+                "error": {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                },
+            },
+            indent=2,
+        )
+    )
+    sys.exit(getattr(exc, "exit_code", 1))
 
 
 def _search_extra(spec: ProviderSpec, opts: dict[str, Any]) -> dict[str, Any]:
@@ -322,33 +377,61 @@ def _search_extra(spec: ProviderSpec, opts: dict[str, Any]) -> dict[str, Any]:
     return extra
 
 
-def _run_search(name: str, **opts: Any) -> None:
+def _run_search(name: str, ctx: click.Context | None, **opts: Any) -> None:
     from . import api
 
     spec = SPECS[name]
     outdir = Path(opts["outdir"])
     manifest = outdir / "manifest.jsonl"
-    provider = spec.build(**opts)
+    json_mode = _json_enabled(ctx, opts)
 
-    refs = api.search(
-        opts["query"],
-        provider=spec.name,
-        providers={spec.name: provider},
-        license=opts.get("license"),
-        duration=opts.get("duration"),
-        tag=opts.get("tag"),
-        gen_ai=opts.get("gen_ai"),
-        raw_filter=opts.get("raw_filter"),
-        sort=opts.get("sort"),
-        page_size=opts["page_size"],
-        max_results=opts["max_results"],
-        extra=_search_extra(spec, opts),
-        on_page=lambda result, page: click.echo(
-            f"page {page}: {len(result.results)} results (total {result.total})"
-        ),
-    )
+    try:
+        provider = spec.build(**opts)
+        refs = api.search(
+            opts["query"],
+            provider=spec.name,
+            providers={spec.name: provider},
+            license=opts.get("license"),
+            duration=opts.get("duration"),
+            tag=opts.get("tag"),
+            gen_ai=opts.get("gen_ai"),
+            raw_filter=opts.get("raw_filter"),
+            sort=opts.get("sort"),
+            page_size=opts["page_size"],
+            max_results=opts["max_results"],
+            extra=_search_extra(spec, opts),
+            # Suppress the "page N:" progress lines in JSON mode — they'd
+            # corrupt stdout.
+            on_page=(
+                None
+                if json_mode
+                else lambda result, page: click.echo(
+                    f"page {page}: {len(result.results)} results (total {result.total})"
+                )
+            ),
+        )
+        api.save_search(refs, manifest)
+    except click.ClickException as exc:
+        if json_mode:
+            _json_error(exc)
+        raise
+    except Exception as exc:
+        if json_mode:
+            _json_error(exc)
+        raise
 
-    api.save_search(refs, manifest)
+    payload: dict[str, Any] = {
+        "ok": True,
+        "command": "search",
+        "provider": spec.name,
+        "query": opts["query"],
+        "manifest": str(manifest),
+        "count": len(refs),
+        "results": [asdict(r) for r in refs],
+    }
+    if json_mode:
+        _emit_json(payload)
+        return
     click.echo(f"wrote {len(refs)} sound references to {manifest}")
 
 
@@ -385,6 +468,13 @@ def _run_download(name: str, **opts: Any) -> None:
     else:
         raise click.UsageError("provide a QUERY or --manifest FILE")
 
+    pacing = None
+    rate = opts.get("rate")
+    if rate:
+        from .core.pacing import Pacing
+
+        pacing = Pacing(rates={spec.name: float(rate)})
+
     results = api.download(
         refs,
         dest_dir=outdir,
@@ -393,24 +483,59 @@ def _run_download(name: str, **opts: Any) -> None:
         overwrite=opts["overwrite"],
         fail_fast=opts["fail_fast"],
         rate_delay=opts["rate_delay"],
+        workers=opts["workers"],
+        pacing=pacing,
         providers={spec.name: provider},
     )
     _report_downloads(results)
 
 
-def _run_status(name: str, **_opts: Any) -> None:
+def _run_status(name: str, ctx: click.Context | None, **opts: Any) -> None:
     spec = SPECS[name]
-    if spec.status_hint:
-        click.echo(spec.status_hint)
-        return
-    provider = spec.build()
-    for key, present in provider.status().items():
-        label = spec.status_labels.get(key, key)
-        if present:
-            click.echo(f"{label}: configured")
+    json_mode = _json_enabled(ctx, opts)
+
+    try:
+        if spec.status_hint:
+            payload: dict[str, Any] = {
+                "ok": True,
+                "provider": name,
+                "hint": spec.status_hint,
+            }
+            human = spec.status_hint
         else:
-            hint = spec.status_missing_hint.get(key)
-            click.echo(f"{label}: missing" + (f" ({hint})" if hint else ""))
+            provider = spec.build()
+            status: dict[str, Any] = {}
+            lines: list[str] = []
+            for key, present in provider.status().items():
+                label = spec.status_labels.get(key, key)
+                if key.endswith("_expired"):
+                    # Inverted signal: True means "bad". Shown as `expired`.
+                    status[label] = {"expired": bool(present)}
+                    if present:
+                        hint = spec.status_missing_hint.get(key)
+                        if hint:
+                            status[label]["hint"] = hint
+                        lines.append(f"{label}: expired" + (f" ({hint})" if hint else ""))
+                    continue
+                status[label] = {"configured": bool(present)}
+                if present:
+                    lines.append(f"{label}: configured")
+                else:
+                    hint = spec.status_missing_hint.get(key)
+                    if hint:
+                        status[label]["hint"] = hint
+                    lines.append(f"{label}: missing" + (f" ({hint})" if hint else ""))
+            payload = {"ok": True, "provider": name, "status": status}
+            human = "\n".join(lines)
+    except Exception as exc:
+        if json_mode:
+            _json_error(exc)
+        raise
+
+    if json_mode:
+        _emit_json(payload)
+    else:
+        click.echo(human)
 
 
 def _report_downloads(results) -> None:
@@ -437,7 +562,12 @@ def _make_group(spec: ProviderSpec) -> click.Group:
         click.Command(
             name="search",
             params=_make_params(spec, "search"),
-            callback=lambda _n=spec.name, **o: _run_search(_n, **o),
+            # click.pass_context injects the subcommand context so a root-level
+            # --json reaches _run_search even when the flag is placed before
+            # the provider group (e.g. `soundfetch --json freesound search`).
+            callback=click.pass_context(
+                lambda ctx, _n=spec.name, **o: _run_search(_n, ctx, **o)
+            ),
             help=search_help,
         )
     )
@@ -452,8 +582,10 @@ def _make_group(spec: ProviderSpec) -> click.Group:
     group.add_command(
         click.Command(
             name="status",
-            params=[],
-            callback=lambda _n=spec.name, **o: _run_status(_n, **o),
+            params=[_opt(spec, "json")],
+            callback=click.pass_context(
+                lambda ctx, _n=spec.name, **o: _run_status(_n, ctx, **o)
+            ),
             help="Show what's configured for this source.",
         )
     )
@@ -480,8 +612,9 @@ def _load_dotenv() -> None:
 @click.group(context_settings=CONTEXT_SETTINGS)
 @click.version_option(version=__version__)
 @click.option("--verbose", is_flag=True, help="Debug logging.")
+@click.option("--json", "json_mode", is_flag=True, help="Emit JSON on stdout.")
 @click.pass_context
-def main(ctx: click.Context, verbose: bool) -> None:
+def main(ctx: click.Context, verbose: bool, json_mode: bool) -> None:
     """soundfetch: batch sound/data collection across the internet."""
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
@@ -490,19 +623,44 @@ def main(ctx: click.Context, verbose: bool) -> None:
     ctx.ensure_object(dict)
     _load_dotenv()
     ctx.obj["verbose"] = verbose
+    ctx.obj["json"] = json_mode
 
 
 @main.command("sources")
-def sources() -> None:
+@click.option("--json", "json_mode", is_flag=True, help="Emit JSON on stdout.")
+@click.pass_context
+def sources(ctx: click.Context, json_mode: bool) -> None:
     """List registered providers."""
     from .core.provider import provider_names as _provider_names
 
-    for name in _provider_names():
-        spec = SPECS.get(name)
-        if spec:
-            click.echo(f"{name} — {spec.help}")
-        else:
-            click.echo(name)
+    json_mode = json_mode or bool(ctx.obj.get("json"))
+    sources = [
+        {"name": name, "help": SPECS[name].help if name in SPECS else ""}
+        for name in _provider_names()
+    ]
+    if json_mode:
+        _emit_json({"ok": True, "sources": sources})
+        return
+    for source in sources:
+        click.echo(f"{source['name']} — {source['help']}" if source["help"] else source["name"])
+
+
+@main.command("mcp")
+def mcp() -> None:
+    """Run the soundfetch MCP server over stdio.
+
+    Exposes ``search_sounds``, ``download_manifest``, ``check_provider_status``,
+    and ``list_sources`` as Model Context Protocol tools for agents.
+    Requires ``pip install "soundfetch[mcp]"``.
+    """
+    try:
+        from .mcp import run
+    except ImportError as exc:
+        raise click.ClickException(
+            'the MCP server requires the "mcp" package — '
+            'install it with `pip install "soundfetch[mcp]"`'
+        ) from exc
+    run()
 
 
 # Register provider groups.
