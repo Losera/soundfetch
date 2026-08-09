@@ -210,14 +210,21 @@ def _attempt_download(
         target = unique_path(dest_dir, stem, ext, taken=taken)
         taken.add(target.name)
 
+    started_at = _now()
+    t0 = time.monotonic()
     try:
         result = provider.download(ref, dest_dir, target=target)
+        elapsed_s = round(time.monotonic() - t0, 3)
+        result.started_at = started_at
+        result.elapsed_s = elapsed_s
         record = ref_record(ref)
         record.update(
             {
                 "status": "downloaded",
                 "local_file": target.name,
                 "downloaded_at": _now(),
+                "started_at": started_at,
+                "elapsed_s": elapsed_s,
                 "bytes": result.bytes,
                 "checksum": result.checksum or ref.checksum,
                 "error": None,
@@ -227,11 +234,14 @@ def _attempt_download(
         log.info("downloaded %s -> %s", ref.provider_id, target.name)
         return result
     except DownloadError as exc:
+        elapsed_s = round(time.monotonic() - t0, 3)
         record = ref_record(ref)
         record.update(
             {
                 "status": "error",
                 "local_file": None,
+                "started_at": started_at,
+                "elapsed_s": elapsed_s,
                 "error": str(exc),
             }
         )
@@ -239,7 +249,8 @@ def _attempt_download(
         log.error("failed %s/%s: %s", ref.provider, ref.provider_id, exc)
         if raise_on_error:
             raise
-        return DownloadResult(local_path=target, bytes=0, status="error", error=str(exc))
+        return DownloadResult(local_path=target, bytes=0, status="error", error=str(exc),
+                              started_at=started_at, elapsed_s=elapsed_s)
 
 
 def _append_record(manifest: Path, record: dict, lock=None) -> None:

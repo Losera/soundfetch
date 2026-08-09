@@ -265,3 +265,22 @@ class TestDownloadRefs:
         download_refs(provider, refs, dest_dir, manifest, rate_delay=0.0)
 
         assert sleeps == []
+
+    def test_download_records_timing_fields(self, tmp_path: Path):
+        dest_dir = tmp_path / "out"
+        manifest = tmp_path / "manifest.jsonl"
+        provider = FakeProvider()
+        refs = [make_ref("1", name="rain")]
+
+        results = download_refs(provider, refs, dest_dir, manifest)
+
+        result = results[0]
+        assert result.started_at is not None
+        assert result.elapsed_s is not None
+        assert result.elapsed_s >= 0
+        # Manifest record also carries the timing fields.
+        records = list(iter_latest(manifest))
+        assert len(records) == 1
+        rec = records[0]
+        assert rec["started_at"] == result.started_at
+        assert rec["elapsed_s"] == result.elapsed_s

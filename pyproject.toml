@@ -30,6 +30,10 @@ export = [
     "soundfile>=0.12",
     "webdataset>=0.2",
 ]
+bench = [
+    "matplotlib>=3.8",
+    "pandas>=2",
+]
 langchain = [
     "langchain-core>=0.3",
 ]
