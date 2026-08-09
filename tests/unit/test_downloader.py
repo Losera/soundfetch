@@ -41,6 +41,33 @@ class TestStreamToFile:
         assert dest.read_bytes() == b"HELLO WORLD"
         assert not part.exists()
 
+    def test_range_resume_verifies_checksum_of_complete_file(
+        self, tmp_path: Path, session: requests.Session, requests_mock
+    ):
+        dest = tmp_path / "sound.mp3"
+        part = dest.with_name(dest.name + ".part")
+        part.write_bytes(b"HELLO")
+        remaining = b" WORLD"
+        checksum = hashlib.md5(b"HELLO WORLD").hexdigest()
+
+        def callback(request, context):
+            assert request.headers.get("Range") == "bytes=5-"
+            context.status_code = 206
+            return remaining
+
+        requests_mock.get("https://example.test/file", content=callback)
+
+        written = stream_to_file(
+            "https://example.test/file",
+            dest,
+            session=session,
+            checksum=checksum,
+        )
+
+        assert written == len(remaining)
+        assert dest.read_bytes() == b"HELLO WORLD"
+        assert not part.exists()
+
     def test_checksum_match_succeeds(self, tmp_path: Path, session: requests.Session, requests_mock):
         dest = tmp_path / "sound.mp3"
         content = b"lossless bytes"
@@ -79,6 +106,23 @@ class TestStreamToFile:
 
         with pytest.raises(DownloadError):
             stream_to_file("https://example.test/file", dest, session=session)
+
+    def test_timeout_is_wrapped_as_download_error(
+        self, tmp_path: Path, session: requests.Session, requests_mock
+    ):
+        dest = tmp_path / "sound.mp3"
+        timeout = requests.Timeout("timed out")
+        requests_mock.get("https://example.test/file", exc=timeout)
+
+        with pytest.raises(DownloadError) as caught:
+            stream_to_file(
+                "https://example.test/file",
+                dest,
+                session=session,
+                attempts=1,
+            )
+
+        assert caught.value.__cause__ is timeout
 
     def test_retries_5xx_then_succeeds(
         self, tmp_path: Path, session: requests.Session, requests_mock, monkeypatch: pytest.MonkeyPatch

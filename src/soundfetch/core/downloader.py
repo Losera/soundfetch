@@ -75,6 +75,10 @@ def stream_to_file(
             mode = "ab" if part.exists() and resp.status_code == 206 else "wb"
             written = 0
             hasher = hashlib.md5()
+            if checksum and mode == "ab":
+                with open(part, "rb") as existing:
+                    for chunk in iter(lambda: existing.read(CHUNK), b""):
+                        hasher.update(chunk)
             with open(part, mode) as fh:
                 for chunk in resp.iter_content(chunk_size=CHUNK):
                     if not chunk:
@@ -106,7 +110,7 @@ def stream_to_file(
             # A 429 during range-resume may or may not have written anything;
             # resume from the current .part size on the next attempt.
             resumed = part.stat().st_size if part.exists() else 0
-        except (HttpError, requests.ConnectionError) as exc:
+        except (HttpError, requests.RequestException) as exc:
             last_exc = exc
             if isinstance(exc, HttpError) and exc.status not in {500, 502, 503, 504}:
                 break  # non-retryable status
