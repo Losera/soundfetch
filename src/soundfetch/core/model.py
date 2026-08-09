@@ -61,3 +61,5 @@ class DownloadResult:
     checksum: str | None = None
     status: str = "downloaded"  # "downloaded" | "skipped" | "error"
     error: str | None = None
+    started_at: str | None = None  # ISO-8601 UTC epoch
+    elapsed_s: float | None = None  # wall-clock seconds for the download
