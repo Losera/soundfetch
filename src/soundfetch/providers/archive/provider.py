@@ -14,6 +14,8 @@ leaves search(), it points at one concrete file, same as any other source.
 from __future__ import annotations
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -41,8 +43,16 @@ AUDIO_EXTENSIONS = ("flac", "wav", "aiff", "aif", "ogg", "mp3", "m4a")
 class ArchiveProvider:
     name = "archive"
 
-    def __init__(self, session: requests.Session | None = None):
+    def __init__(
+        self,
+        session: requests.Session | None = None,
+        *,
+        metadata_workers: int = 4,
+    ):
         self.session = session or requests.Session()
+        self.metadata_workers = max(1, int(metadata_workers))
+        # RateLimiter attached by core.engine once pacing is configured.
+        self.rate_limiter = None
 
     # -- Search -----------------------------------------------------------------
 
@@ -58,13 +68,23 @@ class ArchiveProvider:
         if params.sort:
             query_params["sort[]"] = params.sort
 
-        payload = get_json(self.session, SEARCH_URL, params=query_params)
+        payload = get_json(
+            self._session(), SEARCH_URL, params=query_params, limiter=self.rate_limiter
+        )
         response = payload.get("response", {})
         docs = response.get("docs", [])
         num_found = int(response.get("numFound", 0))
         start = int(response.get("start", 0))
 
-        results = [ref for ref in (self._to_ref(doc) for doc in docs) if ref is not None]
+        # Each hit needs its own /metadata/<id> call; fan those out across a
+        # small pool so a 50-hit page isn't 51 serialized round-trips. Order is
+        # preserved so page boundaries/resume behave exactly as sequential.
+        if self.metadata_workers > 1 and len(docs) > 1:
+            with ThreadPoolExecutor(max_workers=self.metadata_workers) as pool:
+                refs = list(pool.map(self._to_ref, docs))
+        else:
+            refs = [self._to_ref(doc) for doc in docs]
+        results = [ref for ref in refs if ref is not None]
         has_more = (start + len(docs)) < num_found
         return SearchPage(results=results, total=num_found, has_more=has_more)
 
@@ -88,10 +108,28 @@ class ArchiveProvider:
             metadata={**doc, "filename": filename},
         )
 
+    # requests.Session is not thread-safe; metadata workers and concurrent
+    # downloads each get their own lazily-created session. The explicitly
+    # injected `session` still serves the main thread (tests / sequential).
+    _thread_local = threading.local()
+
+    def _session(self) -> requests.Session:
+        if threading.current_thread() is threading.main_thread():
+            return self.session
+        s = getattr(self._thread_local, "session", None)
+        if s is None:
+            s = requests.Session()
+            self._thread_local.session = s
+        return s
+
     def _pick_audio_file(self, identifier: str) -> tuple[str, str, str | None] | None:
         """Resolve one audio file for an item: prefer the original upload,
         then the best-quality extension among what's available."""
-        payload = get_json(self.session, METADATA_URL.format(identifier=identifier))
+        payload = get_json(
+            self._session(),
+            METADATA_URL.format(identifier=identifier),
+            limiter=self.rate_limiter,
+        )
         candidates = []
         for f in payload.get("files", []):
             name = f.get("name", "")
@@ -118,7 +156,11 @@ class ArchiveProvider:
         ext = ref.file_format or "bin"
         final_path = target or (dest_dir / f"{ref.provider_id}.{ext}")
         written = stream_to_file(
-            ref.download_url, final_path, session=self.session, checksum=ref.checksum
+            ref.download_url,
+            final_path,
+            session=self._session(),
+            checksum=ref.checksum,
+            limiter=self.rate_limiter,
         )
         return DownloadResult(
             local_path=final_path, bytes=written, checksum=ref.checksum, status="downloaded"

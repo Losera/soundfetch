@@ -41,6 +41,22 @@ soundfetch freesound status
 soundfetch sources
 ```
 
+Download parallelism & rate control:
+
+```bash
+# Download 4 files in parallel (token-bucket paced per provider)
+soundfetch freesound download "piano" -o out/ --workers 4
+
+# Cap at 2 requests/sec with the token-bucket Pacing (overrides --rate-delay)
+soundfetch archive download --manifest out/manifest.jsonl -o out/ --rate 2
+```
+
+`--workers N` downloads with N threads through a bounded pool (results still
+report in input order). `--rate R` throttles the run to at most R requests/sec
+via a shared token bucket that also paces search; the legacy `--rate-delay`
+(seconds between requests) remains the default and is overridden when `--rate`
+is given.
+
 ### Internet Archive
 
 No API key or auth needed — Internet Archive serves original-quality files to
@@ -141,6 +157,52 @@ for record in soundfetch.iter_latest("out/manifest.jsonl"):
 Top-level exports: `search`, `download`, `save_search`, `refs_from_manifest`,
 `read_records`, `iter_latest`, `latest_by_sound`, `ref_record`, plus the types
 `SoundRef`, `SearchParams`, `DownloadResult`, `Provider`, and `provider_names`.
+
+## Agents & MCP
+
+`soundfetch` speaks MCP and ships pre-built tool wrappers for agent frameworks.
+The same four tools are exposed everywhere: `search_sounds`,
+`download_manifest`, `check_provider_status`, `list_sources`.
+
+```bash
+pip install "soundfetch[mcp]"
+soundfetch mcp   # MCP server over stdio
+```
+
+Register it in Claude Desktop `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "soundfetch": { "command": "soundfetch", "args": ["mcp"] }
+  }
+}
+```
+
+Framework-specific adapters and dataset exporters are deliberately deferred
+from the public beta. Agents can use the standard MCP server, and applications
+can consume the JSONL manifest directly.
+
+## Live benchmarks
+
+The benchmark scripts run small real-network collections against Freesound and
+Internet Archive; add `--video` to include the video provider when `yt-dlp` is
+installed. Freesound requires `FREESOUND_API_KEY`.
+
+```bash
+# Black-box CLI benchmark and ASCII timing table
+python scripts/benchmark_cli.py --limit 3 --query rain
+
+# In-process API benchmark with bounded repeated trials and charts
+pip install -e ".[bench]"
+python scripts/benchmark_api.py --limit 3 --query rain
+```
+
+Each run uses a fresh timestamped directory under `benchmarks/`. The API script
+defaults to three trials with 1 and 4 workers, rejects files above 10 MB, caps
+the study at 500 MB, and writes raw CSV/JSON, environment metadata, and charts
+for throughput, latency, and completion time. Both scripts exit nonzero if a
+source fails.
 
 ## Development
 

@@ -1,0 +1,74 @@
+# soundfetch
+
+> Batch sound/data collection for ML researchers and their agents. A CLI + Python
+> library that queries sound databases (Freesound, Internet Archive, video),
+> downloads audio (previews or lossless originals), and writes a machine-readable
+> JSONL manifest of every sound it finds. The manifest is the dataset index —
+> search output, download checkpoint, and resume log all at once.
+
+## Overview
+
+- [README](https://github.com/Losera/soundfetch/blob/main/README.md): What soundfetch is, the full CLI usage, license-aware collection, and the Python API.
+- [PLAN.md](https://github.com/Losera/soundfetch/blob/main/PLAN.md): Design rationale and phased rollout (note: this file is corrupted by a bad paste — treat as a rough guide, not a literal spec).
+
+## Install
+
+- [pyproject.toml](https://github.com/Losera/soundfetch/blob/main/pyproject.toml): Build config, base deps (click, requests, python-dotenv), and optional extras (`mcp`, `bench`, `video`, `dev`).
+
+```bash
+pip install soundfetch              # base CLI
+pip install "soundfetch[mcp]"       # MCP server for agents
+```
+
+## Quickstart
+
+- [README — Usage](https://github.com/Losera/soundfetch/blob/main/README.md#usage): CLI commands for search / download / status across providers.
+- [CLAUDE.md](https://github.com/Losera/soundfetch/blob/main/CLAUDE.md): Complete command reference and architecture for anyone (human or agent) working in the codebase.
+
+```bash
+soundfetch freesound search "piano" --license cc0 -o out/
+soundfetch freesound download "piano" --mode preview -o out/
+soundfetch archive search "rain storm" --license cc0 -o out/
+soundfetch --json sources              # machine-readable provider list
+soundfetch --json freesound status     # machine-readable config status
+```
+
+## Python API
+
+- [src/soundfetch/api.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/api.py): The public functional API — `search()`, `download()`, `save_search()`, `refs_from_manifest()`, plus manifest readers. Every function has a docstring with a runnable example.
+- [src/soundfetch/core/model.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/core/model.py): Provider-agnostic dataclasses (`SearchParams`, `SoundRef`, `SearchPage`, `DownloadResult`) — the contract between providers and the core engine.
+- [src/soundfetch/core/manifest.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/core/manifest.py): Append-only JSONL manifest reader/writer. The effective record for a sound is the last line with a given `(provider, provider_id)`; `iter_latest()` / `latest_by_sound()` do the last-wins dedup.
+
+```python
+import soundfetch
+refs = soundfetch.search("rain", provider="archive", license="cc0", max_results=100)
+soundfetch.save_search(refs, "out/manifest.jsonl")
+results = soundfetch.download(refs, dest_dir="out/")
+```
+
+## CLI
+
+- [src/soundfetch/cli.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/cli.py): Spec-driven click wiring — `soundfetch <provider> <verb>`. The `--json` flag on `search` / `status` / `sources` emits machine-readable JSON on stdout (and `{"ok": false, "error": {...}}` with a nonzero exit on failure). Download commands expose `--workers N` (parallel threads) and `--rate R` (token-bucket requests/sec that overrides `--rate-delay`), both wired to `core.pacing`.
+
+## Agents & MCP
+
+- [src/soundfetch/mcp.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/mcp.py): The MCP server. Four tools — `search_sounds`, `download_manifest`, `check_provider_status`, `list_sources` — exposed over stdio via `soundfetch mcp`. Tool logic is SDK-independent plain callables with injectable deps.
+- [MCP protocol](https://modelcontextprotocol.io): The Model Context Protocol standard (how `soundfetch mcp` talks to Claude Desktop / Code, Cursor, etc.).
+
+Framework-specific adapters and dataset exporters are deferred from the public
+beta. Agents should use MCP; other programs can consume the manifest directly.
+
+## Benchmarks
+
+- [scripts/benchmark_cli.py](https://github.com/Losera/soundfetch/blob/main/scripts/benchmark_cli.py): Live black-box CLI benchmark for Freesound + Internet Archive, with video opt-in and an ASCII timing/throughput table.
+- [scripts/benchmark_api.py](https://github.com/Losera/soundfetch/blob/main/scripts/benchmark_api.py): Live in-process API benchmark that writes CSV/JSON metrics and throughput, latency, size, and cumulative-progress charts.
+
+```bash
+python scripts/benchmark_cli.py --limit 3 --query rain
+pip install -e ".[bench]"
+python scripts/benchmark_api.py --limit 3 --query rain
+```
+
+## Tests
+
+- [tests/](https://github.com/Losera/soundfetch/blob/main/tests/): Offline suite (default `pytest -m "not live"`) with a scripted `FakeProvider` test double; live smoke tests gated behind `-m live`. Optional-framework tests use `importorskip`, so they pass without installing the frameworks.

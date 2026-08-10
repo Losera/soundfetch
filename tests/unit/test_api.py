@@ -25,6 +25,18 @@ from ..fakes import FakeProvider, make_ref
 
 
 class TestSearch:
+    @pytest.mark.parametrize(
+        "kwargs,message",
+        [
+            ({"query": ""}, "query must not be empty"),
+            ({"query": "rain", "page_size": 0}, "page_size must be at least 1"),
+            ({"query": "rain", "max_results": 0}, "max_results must be at least 1"),
+        ],
+    )
+    def test_validates_common_controls(self, kwargs, message):
+        with pytest.raises(ValueError, match=message):
+            search(provider="fake", providers={}, **kwargs)
+
     def test_returns_refs_from_provider(self):
         page = SearchPage(results=[make_ref("1"), make_ref("2")], total=2, has_more=False)
         fake = FakeProvider(pages=[page])
@@ -199,3 +211,13 @@ class TestManifestRoundTrip:
     def test_refs_from_manifest_returns_empty_for_missing_file(self, tmp_path: Path):
         """refs_from_manifest should handle a manifest that doesn't exist yet."""
         assert refs_from_manifest(tmp_path / "nope.jsonl") == []
+@pytest.mark.parametrize(
+    "kwargs,message",
+    [
+        ({"workers": 0}, "workers must be at least 1"),
+        ({"rate_delay": -0.1}, "rate_delay must not be negative"),
+    ],
+)
+def test_download_validates_common_controls(tmp_path, kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        download([], dest_dir=tmp_path, **kwargs)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Callable
 
@@ -10,7 +11,11 @@ from soundfetch.core.model import DownloadResult, SearchPage, SearchParams, Soun
 
 
 class FakeProvider:
-    """A scripted Provider: fixed search pages + a pluggable download outcome."""
+    """A scripted Provider: fixed search pages + a pluggable download outcome.
+
+    Honors an attached ``rate_limiter`` (set by core.engine's pacing wiring)
+    by acquiring a token before each download, matching the real providers.
+    """
 
     name = "fake"
 
@@ -24,6 +29,8 @@ class FakeProvider:
         self.search_calls: list[int] = []
         self.search_params: list[SearchParams] = []
         self.download_calls: list[str] = []
+        self.rate_limiter = None
+        self._calls_lock = threading.Lock()
 
     def search(self, params, *, progress=None) -> SearchPage:
         page = int(params.extra["page"])
@@ -35,7 +42,10 @@ class FakeProvider:
         return SearchPage(results=[], total=0, has_more=False)
 
     def download(self, ref: SoundRef, dest_dir: Path, *, target: Path | None = None) -> DownloadResult:
-        self.download_calls.append(ref.provider_id)
+        if self.rate_limiter is not None:
+            self.rate_limiter.acquire()
+        with self._calls_lock:
+            self.download_calls.append(ref.provider_id)
         if self.download_fn:
             return self.download_fn(ref, dest_dir, target)
         final = target or (dest_dir / f"{ref.provider_id}.bin")

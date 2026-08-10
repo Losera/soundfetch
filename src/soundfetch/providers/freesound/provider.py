@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -53,8 +54,11 @@ class FreesoundProvider:
         self.preview_quality = preview_quality
         self.preview_format = preview_format
         self.session = session or requests.Session()
+        # RateLimiter attached by core.engine once pacing is configured.
+        self.rate_limiter = None
         self._token = None
         self._token_error: AuthError | None = None
+        self._token_lock = threading.Lock()
         self._oauth: OAuthClient | None = None
         self._config_dir = config_dir
         if mode not in ("preview", "original"):
@@ -83,9 +87,27 @@ class FreesoundProvider:
         return self._oauth
 
     def _bearer_token(self) -> str:
+        # Double-checked locking: token fetch (and any token refresh it
+        # triggers) is not thread-safe, and it can hit the network.
         if self._token is None:
-            self._token = self._oauth_client().get_token().access_token
+            with self._token_lock:
+                if self._token is None:
+                    self._token = self._oauth_client().get_token().access_token
         return self._token
+
+    # requests.Session is not thread-safe; concurrent downloads each get their
+    # own lazily-created session. An explicitly-injected `session` is used for
+    # the main thread (tests / sequential mode) so existing callers are unchanged.
+    _thread_local = threading.local()
+
+    def _session(self) -> requests.Session:
+        if threading.current_thread() is threading.main_thread():
+            return self.session
+        s = getattr(self._thread_local, "session", None)
+        if s is None:
+            s = requests.Session()
+            self._thread_local.session = s
+        return s
 
     # -- Search -----------------------------------------------------------------
 
@@ -114,7 +136,12 @@ class FreesoundProvider:
         if descriptors:
             query_params["fields"] = DEFAULT_FIELDS + "," + ",".join(descriptors)
 
-        payload = get_json(self.session, f"{BASE_URL}/search/", params=query_params)
+        payload = get_json(
+            self._session(),
+            f"{BASE_URL}/search/",
+            params=query_params,
+            limiter=self.rate_limiter,
+        )
 
         results = [
             self._to_ref(item)
@@ -162,7 +189,13 @@ class FreesoundProvider:
 
         ext = self.preview_format
         final_path = target or (dest_dir / f"{ref.provider_id}.{ext}")
-        written = stream_to_file(url, final_path, session=self.session, checksum=None)
+        written = stream_to_file(
+            url,
+            final_path,
+            session=self._session(),
+            checksum=None,
+            limiter=self.rate_limiter,
+        )
         return DownloadResult(local_path=final_path, bytes=written, status="downloaded")
 
     def _download_original(
@@ -176,7 +209,12 @@ class FreesoundProvider:
         ext = (ref.file_format or "wav").lstrip(".")
         final_path = target or (dest_dir / f"{ref.provider_id}.{ext}")
         written = stream_to_file(
-            url, final_path, session=self.session, headers=headers, checksum=ref.checksum
+            url,
+            final_path,
+            session=self._session(),
+            headers=headers,
+            checksum=ref.checksum,
+            limiter=self.rate_limiter,
         )
         return DownloadResult(
             local_path=final_path, bytes=written, checksum=ref.checksum, status="downloaded"
@@ -185,16 +223,25 @@ class FreesoundProvider:
     # -- Health -----------------------------------------------------------------
 
     def status(self) -> dict[str, bool]:
-        """What's configured for this provider (for `soundfetch freesound status`)."""
+        """What's configured for this provider (for `soundfetch freesound status`).
+
+        ``oauth_token`` is true only for a token that exists *and* is still
+        valid; a cached-but-expired token reports ``oauth_token_expired`` so
+        health checks can distinguish "not set up" from "needs a refresh".
+        """
         has_oauth_creds = bool(
             os.environ.get("FREESOUND_CLIENT_ID") and os.environ.get("FREESOUND_CLIENT_SECRET")
         )
-        token_present = False
+        token = None
+        token_expired = False
         if has_oauth_creds:
-            token_present = self._oauth_client().store.load() is not None
+            token = self._oauth_client().store.load()
+            if token is not None:
+                token_expired = token.expired
         return {
             "api_key": bool(self.api_key),
             "client_id": has_oauth_creds,
             "client_secret": has_oauth_creds,
-            "oauth_token": token_present,
+            "oauth_token": token is not None and not token_expired,
+            "oauth_token_expired": token is not None and token_expired,
         }

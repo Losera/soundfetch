@@ -16,3 +16,11 @@ credentials.json
 # Output dirs (this tool writes out/ per invocation; keep them out of git)
 out/
 *.out/
+benchmarks/
+
+# Retained evidence for the August 2026 public-beta review. Per-run audio and
+# manifests remain ignored; only aggregate metrics and charts are reviewable.
+!benchmarks/
+benchmarks/*
+!benchmarks/review-20260809-small/
+benchmarks/review-20260809-small/*/
