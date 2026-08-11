@@ -19,7 +19,7 @@ from .downloader import DownloadError
 from .manifest import append_record
 from .model import DownloadResult, SearchPage, SearchParams, SoundRef
 from .names import unique_path
-from .provider import Provider
+from .provider import ProgressCallback, Provider
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ def search_all(
     params: SearchParams,
     *,
     on_page: Callable[[SearchPage, int], None] | None = None,
+    provider_progress: ProgressCallback | None = None,
     pacing=None,
 ) -> list[SoundRef]:
     """Page through a provider's search until max_results or no more pages.
@@ -64,6 +65,7 @@ def search_all(
     (1-indexed). A fresh SearchParams is built per page so params is never
     mutated by the loop. ``pacing`` (a core.pacing.Pacing) attaches a shared
     rate-limiter to the provider so pagination honors the rate ceiling.
+    ``provider_progress`` is forwarded unchanged on every page.
     """
     if pacing is not None:
         _attach_limiter(provider, pacing, 0.0)
@@ -72,7 +74,7 @@ def search_all(
     while True:
         page += 1
         page_params = replace(params, extra={**params.extra, "page": page})
-        result: SearchPage = provider.search(page_params, progress=None)
+        result: SearchPage = provider.search(page_params, progress=provider_progress)
         collected.extend(result.results)
         if on_page:
             on_page(result, page)

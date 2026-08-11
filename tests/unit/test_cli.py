@@ -49,6 +49,87 @@ class TestArchiveCli:
         assert result.exit_code == 0, result.output
         assert (outdir / "manifest.jsonl").exists()
 
+    def test_search_reports_metadata_progress_on_stderr(self, tmp_path, monkeypatch):
+        class ProgressProvider(FakeProvider):
+            def search(self, params, *, progress=None):
+                if progress is not None:
+                    progress(1, 2)
+                    progress(2, 2)
+                return super().search(params, progress=progress)
+
+        fake = ProgressProvider(
+            pages=[
+                SearchPage(
+                    results=[replace(make_ref("1"), provider="archive")],
+                    total=1,
+                    has_more=False,
+                )
+            ]
+        )
+        self._patch_spec(monkeypatch, fake)
+
+        result = CliRunner().invoke(
+            main, ["archive", "search", "rain", "-o", str(tmp_path / "out")]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "archive metadata: 1/2" in result.stderr
+        assert "archive metadata: 2/2" in result.stderr
+
+    def test_json_search_keeps_stdout_parseable_and_progress_on_stderr(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+
+        class ProgressProvider(FakeProvider):
+            def search(self, params, *, progress=None):
+                if progress is not None:
+                    progress(1, 1)
+                return super().search(params, progress=progress)
+
+        fake = ProgressProvider(
+            pages=[SearchPage(results=[make_ref("1")], total=1, has_more=False)]
+        )
+        self._patch_spec(monkeypatch, fake)
+
+        result = CliRunner().invoke(
+            main,
+            ["archive", "search", "rain", "--json", "-o", str(tmp_path / "out")],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["ok"] is True
+        assert "archive metadata: 1/1" in result.stderr
+
+    def test_query_download_reports_metadata_progress_on_stderr(
+        self, tmp_path, monkeypatch
+    ):
+        class ProgressProvider(FakeProvider):
+            def search(self, params, *, progress=None):
+                if progress is not None:
+                    progress(1, 1)
+                return super().search(params, progress=progress)
+
+        fake = ProgressProvider(
+            pages=[
+                SearchPage(
+                    results=[replace(make_ref("1"), provider="archive")],
+                    total=1,
+                    has_more=False,
+                )
+            ]
+        )
+        self._patch_spec(monkeypatch, fake)
+
+        result = CliRunner().invoke(
+            main,
+            ["archive", "download", "rain", "-o", str(tmp_path / "out")],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "archive metadata: 1/1" in result.stderr
+        assert fake.download_calls == ["1"]
+
     def test_download_from_manifest_end_to_end(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):

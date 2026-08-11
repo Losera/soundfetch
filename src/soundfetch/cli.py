@@ -377,6 +377,14 @@ def _search_extra(spec: ProviderSpec, opts: dict[str, Any]) -> dict[str, Any]:
     return extra
 
 
+def _provider_progress(name: str):
+    if name != "archive":
+        return None
+    return lambda completed, total: click.echo(
+        f"archive metadata: {completed}/{total}", err=True
+    )
+
+
 def _run_search(name: str, ctx: click.Context | None, **opts: Any) -> None:
     from . import api
 
@@ -400,6 +408,7 @@ def _run_search(name: str, ctx: click.Context | None, **opts: Any) -> None:
             page_size=opts["page_size"],
             max_results=opts["max_results"],
             extra=_search_extra(spec, opts),
+            provider_progress=_provider_progress(spec.name),
             # Suppress the "page N:" progress lines in JSON mode — they'd
             # corrupt stdout.
             on_page=(
@@ -458,6 +467,7 @@ def _run_download(name: str, **opts: Any) -> None:
             page_size=opts["page_size"],
             max_results=opts["max_results"],
             extra=_search_extra(spec, opts),
+            provider_progress=_provider_progress(spec.name),
         )
         if not manifest_arg:
             api.save_search(refs, manifest)
