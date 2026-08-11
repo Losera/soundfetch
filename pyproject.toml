@@ -39,6 +39,10 @@ video = [
 mcp = [
     "mcp>=1.29,<2",
 ]
+export = [
+    "webdataset>=0.2",
+    "soundfile>=0.12",
+]
 bench = [
     "matplotlib>=3.8",
     "pandas>=2",
