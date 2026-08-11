@@ -30,6 +30,29 @@ jobs:
       - run: python -m pip install build twine
       - run: python -m build
       - run: python -m twine check dist/*
+      - name: Smoke-test built wheel in a fresh environment
+        run: |
+          python -m venv "$RUNNER_TEMP/soundfetch-wheel-smoke"
+          "$RUNNER_TEMP/soundfetch-wheel-smoke/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/soundfetch-wheel-smoke/bin/soundfetch" --version
+          "$RUNNER_TEMP/soundfetch-wheel-smoke/bin/soundfetch" --help
+          "$RUNNER_TEMP/soundfetch-wheel-smoke/bin/soundfetch" sources --json
+          "$RUNNER_TEMP/soundfetch-wheel-smoke/bin/python" - <<'PY'
+          import os
+          import pathlib
+          import soundfetch
+          import soundfetch.api
+          import soundfetch.cli
+          import soundfetch.core
+
+          package_path = pathlib.Path(soundfetch.__file__).resolve()
+          environment = pathlib.Path(os.environ["RUNNER_TEMP"], "soundfetch-wheel-smoke").resolve()
+          if not package_path.is_relative_to(environment):
+              raise SystemExit(
+                  f"wheel smoke imported soundfetch from {package_path}, not {environment}"
+              )
+          print(f"soundfetch import: {package_path}")
+          PY
 
   mcp:
     runs-on: ubuntu-latest

@@ -3,8 +3,8 @@
 > Batch sound/data collection for ML researchers and their agents. A CLI + Python
 > library that queries sound databases (Freesound, Internet Archive, video),
 > downloads audio (previews or lossless originals), and writes a machine-readable
-> JSONL manifest of every sound it finds. The manifest is the dataset index —
-> search output, download checkpoint, resume log, and ML-export input all at once.
+> JSONL manifest of every sound it finds. The manifest is the dataset index,
+> search output, download checkpoint, and resume log all at once.
 
 ## Overview
 
@@ -13,13 +13,11 @@
 
 ## Install
 
-- [pyproject.toml](https://github.com/Losera/soundfetch/blob/main/pyproject.toml): Build config, base deps (click, requests, python-dotenv), and every optional extra (`mcp`, `export`, `bench`, `langchain`, `llamaindex`, `smolagents`, `agents`, `video`, `dev`).
+- [pyproject.toml](https://github.com/Losera/soundfetch/blob/main/pyproject.toml): Build config, base deps (click, requests, python-dotenv), and optional extras (`mcp`, `bench`, `video`, `dev`).
 
 ```bash
 pip install soundfetch              # base CLI
 pip install "soundfetch[mcp]"       # MCP server for agents
-pip install "soundfetch[export]"    # HF datasets / WebDataset / attribution
-pip install "soundfetch[agents]"    # LangChain + LlamaIndex + Smolagents wrappers
 ```
 
 ## Quickstart
@@ -56,21 +54,6 @@ results = soundfetch.download(refs, dest_dir="out/")
 
 - [src/soundfetch/mcp.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/mcp.py): The MCP server. Four tools — `search_sounds`, `download_manifest`, `check_provider_status`, `list_sources` — exposed over stdio via `soundfetch mcp`. Tool logic is SDK-independent plain callables with injectable deps.
 - [MCP protocol](https://modelcontextprotocol.io): The Model Context Protocol standard (how `soundfetch mcp` talks to Claude Desktop / Code, Cursor, etc.).
-
-## Dataset exports
-
-- [src/soundfetch/export.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/export.py): ML dataset exports straight from the manifest — `to_hf_dataset()` (HuggingFace `datasets.Dataset` with an `Audio` column), `to_webdataset()` (tar shards), `export_attribution()` (`ATTRIBUTION.md` for license compliance). Heavy deps imported lazily inside each function.
-
-```python
-from soundfetch.export import to_hf_dataset, export_attribution
-ds = to_hf_dataset("out/manifest.jsonl")
-ds.push_to_hub("my-audio-dataset")
-export_attribution("out/manifest.jsonl")
-```
-
-## Agent adapters
-
-- [src/soundfetch/adapters/](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/adapters/__init__.py): Pre-built tool wrappers — `langchain_tools()`, `llamaindex_tools()`, `smolagents_tools()` — each returning framework-native tool objects over the same soundfetch functions.
 
 ## Benchmarks
 

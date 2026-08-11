@@ -33,14 +33,14 @@ Check ALL of these focus areas:
   `workers>1` download path — races, busy-loops, deadlocks, coupling between
   `time.sleep` and `time.monotonic()`.
 - **Edge cases**: empty inputs; missing optional dependencies (the lazy imports
-  in `export.py`/`mcp.py`/`adapters/`); 0/None values; Unicode/whitespace in
+  in `mcp.py`); 0/None values; Unicode/whitespace in
   filenames & queries; non-200 HTTP responses; torn/last JSONL lines; int vs
   str `provider_id`.
 - **Atomicity**: does `stream_to_file` leave a consistent state on error? Are
   `.part` files cleaned up? Is `os.replace` correct?
 - **Interface completeness**: docstrings/`__init__` claims vs implemented
-  functions; stubs; TODOs; referenced-but-missing features (e.g.
-  `export_dataset`); entry-point name mismatches.
+  functions; stubs; TODOs; referenced-but-missing features; entry-point name
+  mismatches.
 - **API/CLI contract**: spec-driven CLI — do all `ProviderSpec` verbs/params
   work? Does `--json` output parse? Do error paths emit `{"ok": false}`?
 - **Manifest schema**: are record fields written and read consistently?
@@ -63,10 +63,8 @@ Give the LLM one module at a time, in this order, each with its relevant diff:
 1. `src/soundfetch/core/pacing.py` (token-bucket `RateLimiter`, `Pacing` registry)
 2. `src/soundfetch/core/engine.py` (pagination, threaded `download_refs`, pacing wiring)
 3. `src/soundfetch/core/downloader.py` + `src/soundfetch/core/net.py` (`.part` resume, retry/backoff)
-4. `src/soundfetch/export.py` (HF dataset / WebDataset / attribution)
-5. `src/soundfetch/mcp.py` (MCP server, 4 tools)
-6. `src/soundfetch/adapters/*` (LangChain / LlamaIndex / Smolagents wrappers)
-7. `src/soundfetch/cli.py` + `src/soundfetch/api.py` (spec-driven CLI, `--json`, pacing/workers)
+4. `src/soundfetch/mcp.py` (MCP server, 4 tools)
+5. `src/soundfetch/cli.py` + `src/soundfetch/api.py` (spec-driven CLI, `--json`, pacing/workers)
 
 Collect the LLM's findings into `docs/review-findings.md`, tag P0/P1/P2, verify
 each against the code, and fix P0 first (each fix with a regression test).

@@ -72,7 +72,9 @@ soundfetch archive download "rain storm" --license cc0 -o out/
 
 `--tag` matches Internet Archive's `subject` field. `--license` uses the same
 short codes as Freesound, mapped to the closest `licenseurl` patterns IA
-items actually use.
+items actually use. Archive searches fetch metadata for each result; concise
+`archive metadata: N/T` progress is written to stderr, including when `--json`
+keeps stdout machine-readable.
 
 ### Original (lossless) downloads
 
@@ -156,12 +158,13 @@ for record in soundfetch.iter_latest("out/manifest.jsonl"):
 
 Top-level exports: `search`, `download`, `save_search`, `refs_from_manifest`,
 `read_records`, `iter_latest`, `latest_by_sound`, `ref_record`, plus the types
-`SoundRef`, `SearchParams`, `DownloadResult`, `Provider`, and `provider_names`.
+`SoundRef`, `SearchParams`, `DownloadResult`, `Provider`, `ProgressCallback`,
+and `provider_names`. Library callers can pass `provider_progress=` to
+`search()` for provider-specific `(completed, total)` updates.
 
 ## Agents & MCP
 
-`soundfetch` speaks MCP and ships pre-built tool wrappers for agent frameworks.
-The same four tools are exposed everywhere: `search_sounds`,
+`soundfetch` speaks MCP. Four tools are exposed: `search_sounds`,
 `download_manifest`, `check_provider_status`, `list_sources`.
 
 ```bash
@@ -178,43 +181,6 @@ Register it in Claude Desktop `claude_desktop_config.json`:
   }
 }
 ```
-
-Framework adapters (lazy imports — install only what you use):
-
-```python
-# LangChain
-pip install "soundfetch[langchain]"
-from soundfetch.adapters import langchain_tools
-tools = langchain_tools()
-
-# LlamaIndex
-pip install "soundfetch[llamaindex]"
-from soundfetch.adapters import llamaindex_tools
-tools = llamaindex_tools()
-
-# Smolagents
-pip install "soundfetch[smolagents]"
-from soundfetch.adapters import smolagents_tools
-tools = smolagents_tools()
-```
-
-`pip install "soundfetch[agents]"` installs all three.
-
-## Data exports
-
-Turn a completed manifest into ML-ready datasets straight from the JSONL:
-
-```python
-pip install "soundfetch[export]"
-from soundfetch.export import to_hf_dataset, to_webdataset, export_attribution
-
-ds = to_hf_dataset("out/manifest.jsonl")   # HuggingFace Dataset with Audio column
-to_webdataset("out/manifest.jsonl", "out/shard.tar")  # tar shards
-export_attribution("out/manifest.jsonl", dest_dir="out/")  # ATTRIBUTION.md
-```
-
-Heavy dependencies (`datasets`, `webdataset`, `soundfile`) are imported lazily
-inside each function, so `import soundfetch.export` is cheap.
 
 ## Live benchmarks
 
@@ -243,10 +209,14 @@ pytest -m "not live"          # offline suite (no API key needed)
 pytest -m live                # live smoke test (requires FREESOUND_API_KEY)
 ```
 
+Release preparation, wheel-only smoke checks, publishing gates, and recovery
+steps are documented in [`docs/RELEASE.md`](docs/RELEASE.md).
+
 ## Roadmap
 
 - **Phase 1** (done): working Freesound CLI — search, preview downloads, manifest.
 - **Phase 2** (done): OAuth2 originals, full pagination, license/gen-ai filters, resume.
-- **Phase 3** (in progress): provider platform — Internet Archive (done, above),
-  video sources (not started), one manifest schema across providers (done).
+- **Phase 3** (in progress): provider platform — Internet Archive and the
+  optional `yt-dlp`-backed video provider are available, with one shared
+  manifest schema across providers.
 - **Later**: web UI over the manifest.

@@ -38,7 +38,7 @@ from .core.engine import (
 )
 from .core.manifest import iter_latest, latest_by_sound, read_records
 from .core.model import DownloadResult, SearchParams, SoundRef
-from .core.provider import Provider, get_provider, provider_names
+from .core.provider import ProgressCallback, Provider, get_provider, provider_names
 
 __all__ = [
     # Types (re-exported for library consumers)
@@ -46,6 +46,7 @@ __all__ = [
     "SoundRef",
     "DownloadResult",
     "Provider",
+    "ProgressCallback",
     "provider_names",
     # Functional API
     "search",
@@ -96,6 +97,7 @@ def search(
     max_results: int | None = None,
     extra: dict[str, Any] | None = None,
     on_page: Callable[[Any, int], None] | None = None,
+    provider_progress: ProgressCallback | None = None,
     pacing=None,
 ) -> list[SoundRef]:
     """Search a provider and return ``SoundRef`` results (no files written).
@@ -109,6 +111,9 @@ def search(
     every provider's ``filters.py`` consumes.  Keys that a provider
     doesn't support (e.g. ``duration`` for Internet Archive) are
     silently ignored, so the same call can fan out to multiple sources.
+    ``provider_progress``, when supplied, receives provider-specific
+    ``(completed, total)`` updates; providers that do not report progress
+    may ignore it.
     """
     filters: dict[str, str] = {}
     if license is not None:
@@ -131,7 +136,13 @@ def search(
         sort=sort,
         extra=extra or {"page": 1},
     )
-    return search_all(prov, params, on_page=on_page, pacing=pacing)
+    return search_all(
+        prov,
+        params,
+        on_page=on_page,
+        provider_progress=provider_progress,
+        pacing=pacing,
+    )
 
 
 # ---------------------------------------------------------------------------

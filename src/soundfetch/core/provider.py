@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol, TypeAlias
 
 from .model import DownloadResult, SearchPage, SearchParams, SoundRef
 
@@ -26,12 +26,14 @@ REGISTRY: dict[str, str] = {
     "video": "soundfetch.providers.video.provider:VideoProvider",
 }
 
+ProgressCallback: TypeAlias = Callable[[int, int], None]
+
 
 class Provider(Protocol):
     name: str
 
     def search(
-        self, params: SearchParams, *, progress=None
+        self, params: SearchParams, *, progress: ProgressCallback | None = None
     ) -> SearchPage: ...
 
     def download(
