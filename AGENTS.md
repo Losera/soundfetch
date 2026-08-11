@@ -39,9 +39,15 @@ Search/download orchestration, pagination, resume behavior, and checkpointing be
 
 The JSONL manifest is append-only and last-record-wins per sound identity. Treat its schema and checkpoint behavior as a compatibility boundary.
 
-Providers should map provider-specific API responses into the shared core models rather than leaking provider payload structures through core logic.
+Providers should map provider-specific API responses into the shared core models rather than leaking provider payload structures through core logic. Keep the manifest envelope centralized in `core.engine.ref_record()` and provider-specific fields inside `SoundRef.metadata`.
 
 Do not create provider-specific CLI implementations when the existing spec-driven/provider abstraction can express the behavior.
+
+Keep provider loading lazy in both the core registry and CLI factories so commands that do not use a provider still work without that provider's optional dependencies.
+
+Provider downloads should use the shared `core.downloader.stream_to_file()` path, or preserve its partial-file resume, checksum, retry, and atomic-replace guarantees. Unrecoverable per-item download failures intended for engine checkpointing must surface as `DownloadError`.
+
+Preserve Freesound's `gen_ai_preference` in `SoundRef.metadata` and therefore in the manifest; it is compliance-relevant collection metadata.
 
 Development
 
