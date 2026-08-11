@@ -90,6 +90,11 @@ OPTION_DEFS: dict[str, dict[str, Any]] = {
         "type": click.Path(),
         "help": "Download from this manifest file instead of a QUERY.",
     },
+    "provider_id": {
+        "flags": ["--provider-id"],
+        "multiple": True,
+        "help": "Download only this provider id from --manifest (repeatable).",
+    },
     "resume": {
         "flags": ["--resume/--no-resume"],
         "is_flag": True,
@@ -311,6 +316,7 @@ def _make_params(spec: ProviderSpec, kind: str) -> list[click.Parameter]:
     ]
     if kind == "download":
         params.append(_opt(spec, "manifest"))
+        params.append(_opt(spec, "provider_id"))
     # Generic filter flags.
     for fname in spec.filters:
         params.append(_opt(spec, fname))
@@ -333,6 +339,7 @@ def _make_params(spec: ProviderSpec, kind: str) -> list[click.Parameter]:
     else:
         params.append(_opt(spec, "max_results"))
         params.append(_opt(spec, "page_size"))
+        params.append(_opt(spec, "json"))
     return params
 
 
@@ -444,7 +451,7 @@ def _run_search(name: str, ctx: click.Context | None, **opts: Any) -> None:
     click.echo(f"wrote {len(refs)} sound references to {manifest}")
 
 
-def _run_download(name: str, **opts: Any) -> None:
+def _run_download(name: str, ctx: click.Context | None, **opts: Any) -> None:
     from . import api
 
     spec = SPECS[name]
@@ -452,51 +459,106 @@ def _run_download(name: str, **opts: Any) -> None:
     manifest_arg: str | None = opts.get("manifest")
     manifest = Path(manifest_arg) if manifest_arg else outdir / "manifest.jsonl"
     query: str | None = opts.get("query")
-    provider = spec.build(**opts)
+    selected_ids = tuple(str(value) for value in opts.get("provider_id", ()))
+    json_mode = _json_enabled(ctx, opts)
 
-    if query:
-        refs = api.search(
-            query,
-            provider=spec.name,
+    if selected_ids and not manifest_arg:
+        exc = click.UsageError("--provider-id requires --manifest")
+        if json_mode:
+            _json_error(exc)
+        raise exc
+
+    try:
+        provider = spec.build(**opts)
+
+        if query:
+            refs = api.search(
+                query,
+                provider=spec.name,
+                providers={spec.name: provider},
+                license=opts.get("license"),
+                duration=opts.get("duration"),
+                tag=opts.get("tag"),
+                gen_ai=opts.get("gen_ai"),
+                raw_filter=opts.get("raw_filter"),
+                page_size=opts["page_size"],
+                max_results=opts["max_results"],
+                extra=_search_extra(spec, opts),
+                provider_progress=_provider_progress(spec.name),
+            )
+            if not manifest_arg:
+                api.save_search(refs, manifest)
+            if not json_mode:
+                click.echo(f"found {len(refs)} sounds")
+        elif manifest_arg:
+            refs = api.refs_from_manifest(manifest)
+            if selected_ids:
+                wanted = set(selected_ids)
+                refs = [ref for ref in refs if ref.provider_id in wanted]
+                found = {ref.provider_id for ref in refs}
+                missing = [value for value in selected_ids if value not in found]
+                if missing:
+                    raise click.ClickException(
+                        "provider id(s) not found in manifest: " + ", ".join(missing)
+                    )
+            if not json_mode:
+                click.echo(f"loaded {len(refs)} sounds from {manifest}")
+        else:
+            raise click.UsageError("provide a QUERY or --manifest FILE")
+
+        pacing = None
+        rate = opts.get("rate")
+        if rate:
+            from .core.pacing import Pacing
+
+            pacing = Pacing(rates={spec.name: float(rate)})
+
+        results = api.download(
+            refs,
+            dest_dir=outdir,
+            manifest=manifest,
+            resume=opts["resume"],
+            overwrite=opts["overwrite"],
+            fail_fast=opts["fail_fast"],
+            rate_delay=opts["rate_delay"],
+            workers=opts["workers"],
+            pacing=pacing,
             providers={spec.name: provider},
-            license=opts.get("license"),
-            duration=opts.get("duration"),
-            tag=opts.get("tag"),
-            gen_ai=opts.get("gen_ai"),
-            raw_filter=opts.get("raw_filter"),
-            page_size=opts["page_size"],
-            max_results=opts["max_results"],
-            extra=_search_extra(spec, opts),
-            provider_progress=_provider_progress(spec.name),
         )
-        if not manifest_arg:
-            api.save_search(refs, manifest)
-        click.echo(f"found {len(refs)} sounds")
-    elif manifest_arg:
-        refs = api.refs_from_manifest(manifest)
-        click.echo(f"loaded {len(refs)} sounds from {manifest}")
-    else:
-        raise click.UsageError("provide a QUERY or --manifest FILE")
+    except (click.ClickException, click.UsageError) as exc:
+        if json_mode:
+            _json_error(exc)
+        raise
+    except Exception as exc:
+        if json_mode:
+            _json_error(exc)
+        raise
 
-    pacing = None
-    rate = opts.get("rate")
-    if rate:
-        from .core.pacing import Pacing
+    if json_mode:
+        _emit_json(
+            {
+                "ok": all(result.status != "error" for result in results),
+                "command": "download",
+                "provider": spec.name,
+                "manifest": str(manifest),
+                "items": [
+                    {
+                        "provider": ref.provider,
+                        "provider_id": ref.provider_id,
+                        "status": result.status,
+                        "local_path": str(result.local_path),
+                        "bytes": result.bytes,
+                        "checksum": result.checksum,
+                        "error": result.error,
+                    }
+                    for ref, result in zip(refs, results)
+                ],
+            }
+        )
+        if any(result.status == "error" for result in results):
+            raise click.exceptions.Exit(1)
+        return
 
-        pacing = Pacing(rates={spec.name: float(rate)})
-
-    results = api.download(
-        refs,
-        dest_dir=outdir,
-        manifest=manifest,
-        resume=opts["resume"],
-        overwrite=opts["overwrite"],
-        fail_fast=opts["fail_fast"],
-        rate_delay=opts["rate_delay"],
-        workers=opts["workers"],
-        pacing=pacing,
-        providers={spec.name: provider},
-    )
     _report_downloads(results)
 
 
@@ -585,7 +647,9 @@ def _make_group(spec: ProviderSpec) -> click.Group:
         click.Command(
             name="download",
             params=_make_params(spec, "download"),
-            callback=lambda _n=spec.name, **o: _run_download(_n, **o),
+            callback=click.pass_context(
+                lambda ctx, _n=spec.name, **o: _run_download(_n, ctx, **o)
+            ),
             help=spec.download_help,
         )
     )
