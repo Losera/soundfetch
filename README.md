@@ -72,7 +72,9 @@ soundfetch archive download "rain storm" --license cc0 -o out/
 
 `--tag` matches Internet Archive's `subject` field. `--license` uses the same
 short codes as Freesound, mapped to the closest `licenseurl` patterns IA
-items actually use.
+items actually use. Archive searches fetch metadata for each result; concise
+`archive metadata: N/T` progress is written to stderr, including when `--json`
+keeps stdout machine-readable.
 
 ### Original (lossless) downloads
 
@@ -156,7 +158,9 @@ for record in soundfetch.iter_latest("out/manifest.jsonl"):
 
 Top-level exports: `search`, `download`, `save_search`, `refs_from_manifest`,
 `read_records`, `iter_latest`, `latest_by_sound`, `ref_record`, plus the types
-`SoundRef`, `SearchParams`, `DownloadResult`, `Provider`, and `provider_names`.
+`SoundRef`, `SearchParams`, `DownloadResult`, `Provider`, `ProgressCallback`,
+and `provider_names`. Library callers can pass `provider_progress=` to
+`search()` for provider-specific `(completed, total)` updates.
 
 ## Agents & MCP
 
@@ -205,10 +209,14 @@ pytest -m "not live"          # offline suite (no API key needed)
 pytest -m live                # live smoke test (requires FREESOUND_API_KEY)
 ```
 
+Release preparation, wheel-only smoke checks, publishing gates, and recovery
+steps are documented in [`docs/RELEASE.md`](docs/RELEASE.md).
+
 ## Roadmap
 
 - **Phase 1** (done): working Freesound CLI — search, preview downloads, manifest.
 - **Phase 2** (done): OAuth2 originals, full pagination, license/gen-ai filters, resume.
-- **Phase 3** (in progress): provider platform — Internet Archive (done, above),
-  video sources (not started), one manifest schema across providers (done).
+- **Phase 3** (in progress): provider platform — Internet Archive and the
+  optional `yt-dlp`-backed video provider are available, with one shared
+  manifest schema across providers.
 - **Later**: web UI over the manifest.
