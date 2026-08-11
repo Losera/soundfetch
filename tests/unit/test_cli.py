@@ -6,6 +6,7 @@ so command callbacks resolve the patched spec at call time (not import time).
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -156,6 +157,129 @@ class TestArchiveCli:
         assert result.exit_code == 0, result.output
         assert fake.download_calls == ["1"]
         assert "downloaded=1" in result.output
+
+    def test_json_download_filters_manifest_by_provider_id(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        fake = FakeProvider()
+        self._patch_spec(monkeypatch, fake)
+
+        outdir = tmp_path / "out"
+        manifest = outdir / "manifest.jsonl"
+        for provider_id in ("1", "2", "3"):
+            append_record(
+                manifest,
+                {
+                    "provider": "archive",
+                    "provider_id": provider_id,
+                    "name": f"rain-{provider_id}",
+                    "file_format": "wav",
+                    "status": "listed",
+                },
+            )
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "archive", "download", "--manifest", str(manifest),
+                "--provider-id", "2", "--json", "-o", str(outdir),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is True
+        assert payload["command"] == "download"
+        assert payload["provider"] == "archive"
+        assert payload["manifest"] == str(manifest)
+        assert [item["provider_id"] for item in payload["items"]] == ["2"]
+        assert payload["items"][0]["local_path"].endswith("rain-2.wav")
+        assert fake.download_calls == ["2"]
+
+    def test_json_download_accepts_repeated_provider_ids_in_manifest_order(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        fake = FakeProvider()
+        self._patch_spec(monkeypatch, fake)
+        outdir = tmp_path / "out"
+        manifest = outdir / "manifest.jsonl"
+        for provider_id in ("1", "2", "3"):
+            append_record(
+                manifest,
+                {
+                    "provider": "archive",
+                    "provider_id": provider_id,
+                    "name": f"rain-{provider_id}",
+                    "file_format": "wav",
+                    "status": "listed",
+                },
+            )
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "archive", "download", "--manifest", str(manifest),
+                "--provider-id", "3", "--provider-id", "1",
+                "--json", "-o", str(outdir),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert [item["provider_id"] for item in payload["items"]] == ["1", "3"]
+        assert fake.download_calls == ["1", "3"]
+
+    def test_json_download_reports_missing_provider_id_without_downloading(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        fake = FakeProvider()
+        self._patch_spec(monkeypatch, fake)
+        manifest = tmp_path / "manifest.jsonl"
+        append_record(
+            manifest,
+            {
+                "provider": "archive",
+                "provider_id": "1",
+                "name": "rain",
+                "file_format": "wav",
+                "status": "listed",
+            },
+        )
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "archive", "download", "--manifest", str(manifest),
+                "--provider-id", "missing", "--json", "-o", str(tmp_path / "out"),
+            ],
+        )
+
+        assert result.exit_code != 0
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is False
+        assert payload["error"]["type"] == "ClickException"
+        assert "missing" in payload["error"]["message"]
+        assert fake.download_calls == []
+
+    def test_provider_id_requires_manifest_in_json_mode(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        fake = FakeProvider()
+        self._patch_spec(monkeypatch, fake)
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "archive", "download", "rain", "--provider-id", "1",
+                "--json", "-o", str(tmp_path / "out"),
+            ],
+        )
+
+        assert result.exit_code != 0
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is False
+        assert "requires --manifest" in payload["error"]["message"]
+        assert fake.download_calls == []
 
     def test_download_with_workers_parallel(self, tmp_path, monkeypatch):
         """--workers > 1 downloads every ref (completion order is parallel)."""

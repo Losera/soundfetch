@@ -66,6 +66,10 @@ automatically since they can't be downloaded directly.
 ```bash
 soundfetch archive search "field recording rain" --license cc0 -o out/
 soundfetch archive download --manifest out/manifest.jsonl -o out/
+
+# Machine clients can download an exact reviewed result and receive a stable JSON result.
+soundfetch archive download --manifest out/manifest.jsonl \
+  --provider-id archive-item-123 --json -o out/
 # or search-then-download in one step:
 soundfetch archive download "rain storm" --license cc0 -o out/
 ```
@@ -105,6 +109,12 @@ Every command writes `<outdir>/manifest.jsonl` — one JSON object per line, app
 last-wins per `(provider, provider_id)`. It serves as search output, download
 checkpoint, resume log, and dataset index. Each record includes the provider id,
 metadata (license, tags, duration, samplerate, format, ...), and download status.
+
+`--provider-id` is repeatable and requires `--manifest`; only matching records are
+downloaded, in manifest order. With `--json`, downloads emit one object containing
+`ok`, `provider`, `manifest`, and an `items` array with each selected result's
+`provider_id`, `status`, `local_path`, byte count, checksum, and error. This is the
+supported integration contract for Incant-Audio and other native clients.
 
 Consume it with pandas: `pd.read_json("out/manifest.jsonl", lines=True)`.
 
