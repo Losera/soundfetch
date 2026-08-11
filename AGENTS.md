@@ -45,7 +45,17 @@ Do not create provider-specific CLI implementations when the existing spec-drive
 
 Development
 
-Install:
+Each worktree must use its own `.venv`. Do not reuse or activate an environment
+whose editable Soundfetch install points at another checkout. Bootstrap a new
+worktree with:
+
+scripts/bootstrap-worktree.sh
+
+The script installs `.[dev]` and verifies that `soundfetch.__file__` resolves
+beneath the current worktree. Run project commands through that environment,
+for example `.venv/bin/python -m pytest`.
+
+Manual install:
 
 python -m venv .venv
 . .venv/bin/activate
