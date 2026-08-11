@@ -21,33 +21,12 @@ dev = [
 video = [
     "yt-dlp>=2024.1",
 ]
-# Agent-usability extras — all imported lazily, none needed for the base CLI.
 mcp = [
     "mcp>=1.0",
-]
-export = [
-    "datasets[audio]>=3.0",
-    "soundfile>=0.12",
-    "webdataset>=0.2",
 ]
 bench = [
     "matplotlib>=3.8",
     "pandas>=2",
-]
-langchain = [
-    "langchain-core>=0.3",
-]
-llamaindex = [
-    "llama-index-core>=0.12",
-]
-smolagents = [
-    "smolagents>=1.0",
-]
-# Extras can't reference other extras, so this lists the pins explicitly.
-agents = [
-    "langchain-core>=0.3",
-    "llama-index-core>=0.12",
-    "smolagents>=1.0",
 ]
 
 [project.scripts]

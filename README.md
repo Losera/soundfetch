@@ -160,8 +160,7 @@ Top-level exports: `search`, `download`, `save_search`, `refs_from_manifest`,
 
 ## Agents & MCP
 
-`soundfetch` speaks MCP and ships pre-built tool wrappers for agent frameworks.
-The same four tools are exposed everywhere: `search_sounds`,
+`soundfetch` speaks MCP. Four tools are exposed: `search_sounds`,
 `download_manifest`, `check_provider_status`, `list_sources`.
 
 ```bash
@@ -178,43 +177,6 @@ Register it in Claude Desktop `claude_desktop_config.json`:
   }
 }
 ```
-
-Framework adapters (lazy imports — install only what you use):
-
-```python
-# LangChain
-pip install "soundfetch[langchain]"
-from soundfetch.adapters import langchain_tools
-tools = langchain_tools()
-
-# LlamaIndex
-pip install "soundfetch[llamaindex]"
-from soundfetch.adapters import llamaindex_tools
-tools = llamaindex_tools()
-
-# Smolagents
-pip install "soundfetch[smolagents]"
-from soundfetch.adapters import smolagents_tools
-tools = smolagents_tools()
-```
-
-`pip install "soundfetch[agents]"` installs all three.
-
-## Data exports
-
-Turn a completed manifest into ML-ready datasets straight from the JSONL:
-
-```python
-pip install "soundfetch[export]"
-from soundfetch.export import to_hf_dataset, to_webdataset, export_attribution
-
-ds = to_hf_dataset("out/manifest.jsonl")   # HuggingFace Dataset with Audio column
-to_webdataset("out/manifest.jsonl", "out/shard.tar")  # tar shards
-export_attribution("out/manifest.jsonl", dest_dir="out/")  # ATTRIBUTION.md
-```
-
-Heavy dependencies (`datasets`, `webdataset`, `soundfile`) are imported lazily
-inside each function, so `import soundfetch.export` is cheap.
 
 ## Live benchmarks
 
