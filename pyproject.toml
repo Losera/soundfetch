@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "soundfetch"
 version = "0.3.0"
 description = "Batch sound/data collection — extract audio files across the internet (Freesound, Internet Archive, video)."
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.1",
