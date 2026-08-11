@@ -182,6 +182,24 @@ Register it in Claude Desktop `claude_desktop_config.json`:
 }
 ```
 
+## Data exports
+
+Turn a completed manifest into WebDataset shards or a compliance-ready
+attribution file:
+
+```python
+pip install "soundfetch[export]"
+from soundfetch.export import to_webdataset, export_attribution
+
+to_webdataset("out/manifest.jsonl", out_dir="out/shard.tar")  # tar shards
+export_attribution("out/manifest.jsonl", dest_dir="out/")     # ATTRIBUTION.md
+```
+
+Heavy dependencies (`webdataset`, `soundfile`) are imported lazily inside
+`to_webdataset`, so `import soundfetch.export` is cheap. A HuggingFace
+`datasets` exporter was attempted and deliberately left out — see
+[`docs/deferred-work.md`](docs/deferred-work.md).
+
 ## Live benchmarks
 
 The benchmark scripts run small real-network collections against Freesound and

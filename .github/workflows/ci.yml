@@ -64,3 +64,14 @@ jobs:
           cache: pip
       - run: python -m pip install -e ".[dev,mcp]"
       - run: python -m pytest tests/unit/test_mcp.py tests/unit/test_mcp_protocol.py
+
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -e ".[dev,export]"
+      - run: python -m pytest tests/unit/test_export.py
