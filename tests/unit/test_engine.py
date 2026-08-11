@@ -56,6 +56,48 @@ class TestSearchAll:
 
         assert seen == [1, 2]
 
+    def test_provider_progress_callback_forwarded_unchanged_on_every_page(self):
+        callback = lambda completed, total: None
+        seen = []
+
+        class ProgressProvider(FakeProvider):
+            def search(self, params, *, progress=None):
+                seen.append(progress)
+                return super().search(params, progress=progress)
+
+        provider = ProgressProvider(
+            pages=[
+                SearchPage(results=[make_ref("1")], total=2, has_more=True),
+                SearchPage(results=[make_ref("2")], total=2, has_more=False),
+            ]
+        )
+
+        search_all(
+            provider,
+            SearchParams(query="x"),
+            provider_progress=callback,
+        )
+
+        assert seen == [callback, callback]
+
+    def test_provider_progress_callback_exception_propagates(self):
+        class ProgressProvider(FakeProvider):
+            def search(self, params, *, progress=None):
+                assert progress is not None
+                progress(1, 1)
+                return super().search(params, progress=progress)
+
+        provider = ProgressProvider()
+
+        with pytest.raises(RuntimeError, match="stop progress"):
+            search_all(
+                provider,
+                SearchParams(query="x"),
+                provider_progress=lambda completed, total: (_ for _ in ()).throw(
+                    RuntimeError("stop progress")
+                ),
+            )
+
     def test_params_not_mutated_across_pages(self):
         page1 = SearchPage(results=[make_ref("1")], total=1, has_more=False)
         provider = FakeProvider(pages=[page1])

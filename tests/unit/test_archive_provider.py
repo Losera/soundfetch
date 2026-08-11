@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -183,6 +185,80 @@ class TestSearch:
         )
         page = provider.search(SearchParams(query="x", extra={"page": 1}))
         assert page.results[0].name == "item1"
+
+    def test_sequential_progress_includes_skipped_items(self, requests_mock, monkeypatch):
+        provider = ArchiveProvider(metadata_workers=1)
+        docs = [{"identifier": str(i)} for i in range(3)]
+        requests_mock.get(SEARCH_URL, json=_search_payload(docs=docs))
+        refs = [object(), None, object()]
+        monkeypatch.setattr(provider, "_to_ref", lambda doc: refs[int(doc["identifier"])])
+        calls = []
+
+        page = provider.search(
+            SearchParams(query="x"), progress=lambda completed, total: calls.append(
+                (completed, total)
+            )
+        )
+
+        assert calls == [(1, 3), (2, 3), (3, 3)]
+        assert page.results == [refs[0], refs[2]]
+
+    def test_threaded_progress_is_ordered_and_runs_on_main_thread(
+        self, requests_mock, monkeypatch
+    ):
+        provider = ArchiveProvider(metadata_workers=3)
+        docs = [{"identifier": str(i)} for i in range(3)]
+        requests_mock.get(SEARCH_URL, json=_search_payload(docs=docs))
+        main_thread = threading.current_thread()
+
+        def to_ref(doc):
+            time.sleep((2 - int(doc["identifier"])) * 0.01)
+            return doc["identifier"]
+
+        monkeypatch.setattr(provider, "_to_ref", to_ref)
+        calls = []
+
+        page = provider.search(
+            SearchParams(query="x"),
+            progress=lambda completed, total: calls.append(
+                (completed, total, threading.current_thread())
+            ),
+        )
+
+        assert page.results == ["0", "1", "2"]
+        assert [(completed, total) for completed, total, _ in calls] == [
+            (1, 3), (2, 3), (3, 3)
+        ]
+        assert all(thread is main_thread for _, _, thread in calls)
+
+    def test_empty_page_emits_no_progress(self, provider, requests_mock):
+        requests_mock.get(SEARCH_URL, json=_search_payload(docs=[]))
+        calls = []
+
+        page = provider.search(
+            SearchParams(query="x"),
+            progress=lambda completed, total: calls.append((completed, total)),
+        )
+
+        assert page.results == []
+        assert calls == []
+
+    @pytest.mark.parametrize("workers", [1, 2])
+    def test_progress_exception_propagates(
+        self, workers, requests_mock, monkeypatch
+    ):
+        provider = ArchiveProvider(metadata_workers=workers)
+        docs = [{"identifier": "0"}, {"identifier": "1"}]
+        requests_mock.get(SEARCH_URL, json=_search_payload(docs=docs))
+        monkeypatch.setattr(provider, "_to_ref", lambda doc: doc)
+
+        with pytest.raises(RuntimeError, match="caller failed"):
+            provider.search(
+                SearchParams(query="x"),
+                progress=lambda completed, total: (_ for _ in ()).throw(
+                    RuntimeError("caller failed")
+                ),
+            )
 
 
 # ---------------------------------------------------------------------------

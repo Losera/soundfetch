@@ -68,6 +68,41 @@ class TestSearch:
         search("rain", providers={"freesound": fake}, on_page=lambda r, p: calls.append(p))
         assert calls == [1]
 
+    def test_provider_progress_callback_forwarded(self):
+        callback = lambda completed, total: None
+        seen = []
+
+        class ProgressProvider(FakeProvider):
+            def search(self, params, *, progress=None):
+                seen.append(progress)
+                return super().search(params, progress=progress)
+
+        fake = ProgressProvider(
+            pages=[SearchPage(results=[], total=0, has_more=False)]
+        )
+        search(
+            "rain",
+            providers={"freesound": fake},
+            provider_progress=callback,
+        )
+
+        assert seen == [callback]
+
+    def test_provider_progress_defaults_to_none(self):
+        seen = []
+
+        class ProgressProvider(FakeProvider):
+            def search(self, params, *, progress=None):
+                seen.append(progress)
+                return super().search(params, progress=progress)
+
+        fake = ProgressProvider(
+            pages=[SearchPage(results=[], total=0, has_more=False)]
+        )
+        search("rain", providers={"freesound": fake})
+
+        assert seen == [None]
+
     def test_max_results_truncates(self):
         page1 = SearchPage(results=[make_ref("1"), make_ref("2")], total=5, has_more=True)
         page2 = SearchPage(results=[make_ref("3")], total=5, has_more=False)

@@ -24,6 +24,7 @@ import requests
 from ...core.downloader import DownloadError, stream_to_file
 from ...core.model import DownloadResult, SearchPage, SearchParams, SoundRef
 from ...core.net import get_json
+from ...core.provider import ProgressCallback
 from .filters import build_query
 
 log = logging.getLogger(__name__)
@@ -56,7 +57,12 @@ class ArchiveProvider:
 
     # -- Search -----------------------------------------------------------------
 
-    def search(self, params: SearchParams, *, progress=None) -> SearchPage:
+    def search(
+        self,
+        params: SearchParams,
+        *,
+        progress: ProgressCallback | None = None,
+    ) -> SearchPage:
         page = int(params.extra.get("page", 1))
         query_params: dict[str, Any] = {
             "q": build_query(params.query, params.filters),
@@ -79,11 +85,20 @@ class ArchiveProvider:
         # Each hit needs its own /metadata/<id> call; fan those out across a
         # small pool so a 50-hit page isn't 51 serialized round-trips. Order is
         # preserved so page boundaries/resume behave exactly as sequential.
-        if self.metadata_workers > 1 and len(docs) > 1:
+        total = len(docs)
+        if self.metadata_workers > 1 and total > 1:
             with ThreadPoolExecutor(max_workers=self.metadata_workers) as pool:
-                refs = list(pool.map(self._to_ref, docs))
+                refs = []
+                for completed, ref in enumerate(pool.map(self._to_ref, docs), 1):
+                    refs.append(ref)
+                    if progress is not None:
+                        progress(completed, total)
         else:
-            refs = [self._to_ref(doc) for doc in docs]
+            refs = []
+            for completed, doc in enumerate(docs, 1):
+                refs.append(self._to_ref(doc))
+                if progress is not None:
+                    progress(completed, total)
         results = [ref for ref in refs if ref is not None]
         has_more = (start + len(docs)) < num_found
         return SearchPage(results=results, total=num_found, has_more=has_more)
