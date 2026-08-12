@@ -375,4 +375,6 @@ and total-size caps:
 Release preparation, wheel-only smoke tests, publishing gates, and recovery
 steps are documented in [`docs/RELEASE.md`](docs/RELEASE.md). The current beta
 evidence and remaining human gates are recorded in
-[`docs/beta-readiness-0.4.0.md`](docs/beta-readiness-0.4.0.md).
+[`docs/beta-readiness-0.4.0.md`](docs/beta-readiness-0.4.0.md). Longer-term
+product hypotheses and sequencing are maintained in the
+[`product and workflow roadmap`](docs/product-workflow-roadmap.md).
