@@ -16,4 +16,17 @@ credentials.json
 # Output dirs (this tool writes out/ per invocation; keep them out of git)
 out/
 *.out/
-benchmarks/
+# Benchmark working data contains downloaded audio and manifests. Keep it
+# ignored while allowing deliberately named review snapshots to retain only
+# reproducibility metadata and aggregate evidence.
+benchmarks/*
+!benchmarks/review-*/
+benchmarks/review-*/**
+!benchmarks/review-*/run.json
+!benchmarks/review-*/failures.json
+!benchmarks/review-*/metrics.csv
+!benchmarks/review-*/summary.csv
+!benchmarks/review-*/summary.json
+!benchmarks/review-*/throughput.png
+!benchmarks/review-*/latency.png
+!benchmarks/review-*/completion-time.png

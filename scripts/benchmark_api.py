@@ -3,7 +3,8 @@
 
 Freesound and Internet Archive run by default. Video is opt-in with
 ``--video`` and requires the ``video`` extra. The script writes raw CSV/JSON
-metrics plus four matplotlib figures to ``benchmarks/out-<timestamp>/``.
+metrics, run metadata, and three matplotlib figures to
+``benchmarks/out-<timestamp>/``.
 
 Install chart dependencies with ``pip install -e '.[bench]'``. Freesound
 searches require ``FREESOUND_API_KEY``. This script performs real network
@@ -15,6 +16,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import platform
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -22,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import soundfetch
+import requests
 
 DEFAULT_SOURCES = ("freesound", "archive")
 COLORS = ("#4C78A8", "#F58518", "#54A24B")
@@ -45,14 +49,21 @@ def _benchmark_source(
     query: str,
     limit: int,
     output_dir: Path,
+    run_label: str,
+    workers: int,
+    max_file_bytes: int,
+    remaining_bytes: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    source_dir = output_dir / source
+    source_dir = output_dir / run_label
     source_dir.mkdir(parents=True)
     manifest = source_dir / "manifest.jsonl"
 
     started = time.monotonic()
     refs = soundfetch.search(query, provider=source, max_results=limit)
     search_s = time.monotonic() - started
+    refs, expected_bytes = _bounded_refs(refs, max_file_bytes, remaining_bytes)
+    if not refs:
+        raise RuntimeError(f"{source} returned no files within the safety limits")
     soundfetch.save_search(refs, manifest)
 
     started = time.monotonic()
@@ -61,6 +72,7 @@ def _benchmark_source(
         dest_dir=source_dir,
         manifest=manifest,
         rate_delay=0,
+        workers=workers,
     )
     download_wall_s = time.monotonic() - started
     failures = [result for result in results if result.status == "error"]
@@ -87,6 +99,7 @@ def _benchmark_source(
         rows.append(
             {
                 "provider": source,
+                "configuration": f"{source}/w{workers}",
                 "provider_id": str(record.get("provider_id", "")),
                 "name": str(record.get("name", "")),
                 "bytes": size,
@@ -103,14 +116,38 @@ def _benchmark_source(
     total_bytes = sum(row["bytes"] for row in rows)
     summary = {
         "source": source,
+        "configuration": f"{source}/w{workers}",
+        "workers": workers,
         "files": len(rows),
         "search_wall_s": search_s,
         "download_wall_s": download_wall_s,
         "timed_download_s": total_s,
         "bytes": total_bytes,
+        "preflight_bytes": expected_bytes,
         "mb_per_s": (total_bytes / 1_048_576) / total_s if total_s else 0.0,
     }
     return rows, summary
+
+
+def _bounded_refs(refs, max_file_bytes: int, remaining_bytes: int):
+    """Select refs whose advertised download sizes stay within hard run caps."""
+    selected = []
+    total = 0
+    session = requests.Session()
+    for ref in refs:
+        if not ref.download_url:
+            continue
+        try:
+            response = session.head(ref.download_url, allow_redirects=True, timeout=30)
+            response.raise_for_status()
+            size = int(response.headers.get("Content-Length") or 0)
+        except (requests.RequestException, ValueError):
+            continue
+        if size <= 0 or size > max_file_bytes or total + size > remaining_bytes:
+            continue
+        selected.append(ref)
+        total += size
+    return selected, total
 
 
 def _configure_axes(ax, *, title: str, xlabel: str, ylabel: str) -> None:
@@ -126,14 +163,14 @@ def _save_figure(fig, path: Path) -> None:
     fig.savefig(path, dpi=150, bbox_inches="tight", facecolor="white")
 
 
-def _render_figures(frame, output_dir: Path, plt) -> None:
-    providers = list(dict.fromkeys(frame["provider"].tolist()))
+def _render_figures(frame, summaries, output_dir: Path, plt) -> None:
+    providers = list(dict.fromkeys(frame["configuration"].tolist()))
     palette = {provider: COLORS[index % len(COLORS)] for index, provider in enumerate(providers)}
 
     throughput = (
-        frame.groupby("provider", sort=False)[["size_mb", "elapsed_s"]]
+        summaries.groupby("configuration", sort=False)[["bytes", "download_wall_s"]]
         .sum()
-        .assign(mb_per_s=lambda grouped: grouped["size_mb"] / grouped["elapsed_s"])
+        .assign(mb_per_s=lambda grouped: (grouped["bytes"] / 1_048_576) / grouped["download_wall_s"])
     )
     fig, ax = plt.subplots(figsize=(8, 4.8))
     ax.bar(
@@ -142,13 +179,13 @@ def _render_figures(frame, output_dir: Path, plt) -> None:
         color=[palette[provider] for provider in throughput.index],
         width=0.64,
     )
-    _configure_axes(ax, title="Download throughput by source", xlabel="Source", ylabel="Throughput (MB/s)")
+    _configure_axes(ax, title="Effective download throughput", xlabel="Configuration", ylabel="Throughput (MB/s)")
     _save_figure(fig, output_dir / "throughput.png")
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(8, 4.8))
     for provider in providers:
-        values = frame.loc[frame["provider"] == provider, "elapsed_s"]
+        values = frame.loc[frame["configuration"] == provider, "elapsed_s"]
         bins = max(1, min(12, len(values)))
         ax.hist(values, bins=bins, alpha=0.58, color=palette[provider], label=provider)
     _configure_axes(ax, title="Per-file download latency", xlabel="Download time (seconds)", ylabel="Files")
@@ -156,30 +193,21 @@ def _render_figures(frame, output_dir: Path, plt) -> None:
     _save_figure(fig, output_dir / "latency.png")
     plt.close(fig)
 
+    mean_wall = summaries.groupby("configuration", sort=False)["download_wall_s"].mean()
     fig, ax = plt.subplots(figsize=(8, 4.8))
-    for provider in providers:
-        values = frame.loc[frame["provider"] == provider, "size_mb"]
-        bins = max(1, min(12, len(values)))
-        ax.hist(values, bins=bins, alpha=0.58, color=palette[provider], label=provider)
-    _configure_axes(ax, title="Downloaded file sizes", xlabel="File size (MB)", ylabel="Files")
-    ax.legend(frameon=False)
-    _save_figure(fig, output_dir / "sizes.png")
-    plt.close(fig)
-
-    fig, ax = plt.subplots(figsize=(8, 4.8))
-    for provider in providers:
-        group = frame.loc[frame["provider"] == provider]
-        x = [0.0, *group["completion_s"].tolist()]
-        y = [0.0, *(group["cumulative_bytes"] / 1_048_576).tolist()]
-        ax.step(x, y, where="post", linewidth=2.2, color=palette[provider], label=provider)
+    ax.bar(
+        mean_wall.index,
+        mean_wall.values,
+        color=[palette[provider] for provider in mean_wall.index],
+        width=0.64,
+    )
     _configure_axes(
         ax,
-        title="Cumulative download progress",
-        xlabel="Download wall-clock (seconds)",
-        ylabel="Cumulative data (MB)",
+        title="Mean download completion time",
+        xlabel="Configuration",
+        ylabel="Wall time (seconds)",
     )
-    ax.legend(frameon=False)
-    _save_figure(fig, output_dir / "progress.png")
+    _save_figure(fig, output_dir / "completion-time.png")
     plt.close(fig)
 
 
@@ -188,15 +216,68 @@ def _default_output_dir() -> str:
     return f"benchmarks/out-{stamp}"
 
 
+def _parse_worker_counts(value: str) -> list[int]:
+    """Parse and validate the comma-separated worker configurations."""
+    try:
+        worker_counts = [int(item) for item in value.split(",")]
+    except ValueError as exc:
+        raise ValueError("workers must be comma-separated integers") from exc
+    if not worker_counts or any(worker < 1 for worker in worker_counts):
+        raise ValueError("worker counts must be at least 1")
+    return worker_counts
+
+
+def _run_metadata(args: argparse.Namespace, worker_counts: list[int]) -> dict[str, Any]:
+    """Capture enough environment and invocation detail to reproduce a run."""
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+    ).stdout.strip()
+    dirty = bool(
+        subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout
+    )
+    return {
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "commit": commit,
+        "dirty": dirty,
+        "python": sys.version,
+        "platform": platform.platform(),
+        "query": args.query,
+        "limit": args.limit,
+        "trials": args.trials,
+        "workers": worker_counts,
+        "max_file_mb": args.max_file_mb,
+        "max_total_mb": args.max_total_mb,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=3, help="Files per source (default: %(default)s)")
     parser.add_argument("--query", default="rain", help="Search query (default: %(default)s)")
     parser.add_argument("--outdir", default=None, help="Fresh benchmark output directory")
     parser.add_argument("--video", action="store_true", help="Also benchmark the video provider")
+    parser.add_argument("--trials", type=int, default=3, help="Repeated trials per configuration")
+    parser.add_argument("--workers", default="1,4", help="Comma-separated worker counts")
+    parser.add_argument("--max-file-mb", type=int, default=10, help="Hard per-file safety cap")
+    parser.add_argument("--max-total-mb", type=int, default=500, help="Hard total preflight cap")
     args = parser.parse_args()
     if args.limit < 1:
         parser.error("--limit must be at least 1")
+    if args.trials < 1:
+        parser.error("--trials must be at least 1")
+    try:
+        worker_counts = _parse_worker_counts(args.workers)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.max_file_mb < 1:
+        parser.error("--max-file-mb must be at least 1")
+    if args.max_total_mb < 1:
+        parser.error("--max-total-mb must be at least 1")
 
     output_dir = Path(args.outdir or _default_output_dir())
     if output_dir.exists() and any(output_dir.iterdir()):
@@ -220,25 +301,48 @@ def main() -> int:
     rows: list[dict[str, Any]] = []
     summaries: list[dict[str, Any]] = []
     failures: list[str] = []
+    remaining_bytes = args.max_total_mb * 1_048_576
     for source in sources:
-        print(f"Benchmarking {source}...")
-        try:
-            source_rows, summary = _benchmark_source(
-                source,
-                query=args.query,
-                limit=args.limit,
-                output_dir=output_dir,
-            )
-        except Exception as exc:
-            failures.append(f"{source}: {exc}")
-            print(f"  FAILED: {exc}")
-            continue
-        rows.extend(source_rows)
-        summaries.append(summary)
-        print(
-            f"  files={summary['files']}; search wall={summary['search_wall_s']:.3f}s; "
-            f"download wall={summary['download_wall_s']:.3f}s"
-        )
+        for workers in worker_counts:
+            for trial in range(1, args.trials + 1):
+                label = f"{source}-w{workers}-t{trial}"
+                print(f"Benchmarking {label}...")
+                try:
+                    source_rows, summary = _benchmark_source(
+                        source,
+                        query=args.query,
+                        limit=args.limit,
+                        output_dir=output_dir,
+                        run_label=label,
+                        workers=workers,
+                        max_file_bytes=args.max_file_mb * 1_048_576,
+                        remaining_bytes=remaining_bytes,
+                    )
+                except Exception as exc:
+                    failures.append(f"{label}: {exc}")
+                    print(f"  FAILED: {exc}")
+                    continue
+                summary["trial"] = trial
+                remaining_bytes -= summary["bytes"]
+                rows.extend(source_rows)
+                summaries.append(summary)
+                print(
+                    f"  files={summary['files']}; search wall={summary['search_wall_s']:.3f}s; "
+                    f"download wall={summary['download_wall_s']:.3f}s"
+                )
+
+    run_metadata = _run_metadata(args, worker_counts)
+    run_metadata["sources"] = sources
+    run_metadata["completed_configurations"] = len(summaries)
+    run_metadata["failed_configurations"] = len(failures)
+    (output_dir / "run.json").write_text(
+        json.dumps(run_metadata, indent=2),
+        encoding="utf-8",
+    )
+    (output_dir / "failures.json").write_text(
+        json.dumps(failures, indent=2),
+        encoding="utf-8",
+    )
 
     if rows:
         frame = pd.DataFrame(rows)
@@ -247,8 +351,10 @@ def main() -> int:
             json.dumps(summaries, indent=2),
             encoding="utf-8",
         )
-        _render_figures(frame, output_dir, plt)
-        print("\nWrote metrics.csv, summary.json, and four PNG figures.")
+        summary_frame = pd.DataFrame(summaries)
+        summary_frame.to_csv(output_dir / "summary.csv", index=False)
+        _render_figures(frame, summary_frame, output_dir, plt)
+        print("\nWrote raw metrics, summaries, run metadata, and three PNG figures.")
     if failures:
         print("\nFailures:", file=sys.stderr)
         for failure in failures:

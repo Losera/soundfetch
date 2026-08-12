@@ -1,0 +1,14 @@
+[
+  "freesound-w1-t1: FREESOUND_API_KEY is not set. Add it to .env or the environment (get a key at https://freesound.org/apiv2/apply/).",
+  "freesound-w1-t2: FREESOUND_API_KEY is not set. Add it to .env or the environment (get a key at https://freesound.org/apiv2/apply/).",
+  "freesound-w1-t3: FREESOUND_API_KEY is not set. Add it to .env or the environment (get a key at https://freesound.org/apiv2/apply/).",
+  "freesound-w4-t1: FREESOUND_API_KEY is not set. Add it to .env or the environment (get a key at https://freesound.org/apiv2/apply/).",
+  "freesound-w4-t2: FREESOUND_API_KEY is not set. Add it to .env or the environment (get a key at https://freesound.org/apiv2/apply/).",
+  "freesound-w4-t3: FREESOUND_API_KEY is not set. Add it to .env or the environment (get a key at https://freesound.org/apiv2/apply/).",
+  "archive-w1-t1: archive returned no files within the safety limits",
+  "archive-w1-t2: archive returned no files within the safety limits",
+  "archive-w1-t3: archive returned no files within the safety limits",
+  "archive-w4-t1: archive returned no files within the safety limits",
+  "archive-w4-t2: archive returned no files within the safety limits",
+  "archive-w4-t3: archive returned no files within the safety limits"
+]

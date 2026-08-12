@@ -1,0 +1,22 @@
+{
+  "recorded_at": "2026-08-11T19:37:44.848500+00:00",
+  "commit": "b1ace99bffe3ce2b553244100010045c739e47fb",
+  "dirty": true,
+  "python": "3.14.6 (main, Jun 15 2026, 11:36:54) [GCC 16.1.1 20260430]",
+  "platform": "Linux-7.1.4-arch1-1-x86_64-with-glibc2.43",
+  "query": "rain",
+  "limit": 10,
+  "trials": 3,
+  "workers": [
+    1,
+    4
+  ],
+  "max_file_mb": 1,
+  "max_total_mb": 100,
+  "sources": [
+    "freesound",
+    "archive"
+  ],
+  "completed_configurations": 0,
+  "failed_configurations": 12
+}

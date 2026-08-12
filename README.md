@@ -226,8 +226,11 @@ python scripts/benchmark_api.py --limit 3 --query rain
 ```
 
 Each run uses a fresh timestamped directory under `benchmarks/`. The API script
-writes `throughput.png`, `latency.png`, `sizes.png`, and `progress.png` at 150
-dpi. Both scripts exit nonzero if a source fails.
+accepts repeated `--trials`, comma-separated `--workers`, and hard
+`--max-file-mb` / `--max-total-mb` safety caps. It writes raw metrics,
+summaries, environment and Git metadata, a failure list, and comparison charts.
+Named `benchmarks/review-*` snapshots may retain those evidence files; downloaded
+audio and manifests remain ignored. Both scripts exit nonzero if a source fails.
 
 ## Development
 
