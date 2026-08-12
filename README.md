@@ -80,6 +80,12 @@ items actually use. Archive searches fetch metadata for each result; concise
 `archive metadata: N/T` progress is written to stderr, including when `--json`
 keeps stdout machine-readable.
 
+Archive search covers IA's entire audio-mediatype catalog, not a curated
+sound-effects library — a bare keyword like `rain` can rank a music track
+whose *title* contains the word above an actual field recording, since that's
+a genuine relevance match, not a bug. Prefer descriptive queries (as above)
+or `--tag` to narrow results.
+
 ### Original (lossless) downloads
 
 Freesound serves low-quality previews (mp3/ogg, ~64–192 kbps) to a plain API key.
@@ -226,8 +232,11 @@ python scripts/benchmark_api.py --limit 3 --query rain
 ```
 
 Each run uses a fresh timestamped directory under `benchmarks/`. The API script
-writes `throughput.png`, `latency.png`, `sizes.png`, and `progress.png` at 150
-dpi. Both scripts exit nonzero if a source fails.
+accepts repeated `--trials`, comma-separated `--workers`, and hard
+`--max-file-mb` / `--max-total-mb` safety caps. It writes raw metrics,
+summaries, environment and Git metadata, a failure list, and comparison charts.
+Named `benchmarks/review-*` snapshots may retain those evidence files; downloaded
+audio and manifests remain ignored. Both scripts exit nonzero if a source fails.
 
 ## Development
 

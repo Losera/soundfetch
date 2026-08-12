@@ -9,6 +9,14 @@ representative audio file per item during search() itself, via a metadata
 lookup per hit. That's an extra request per result versus Freesound, but
 it's what keeps the core engine provider-agnostic: by the time a SoundRef
 leaves search(), it points at one concrete file, same as any other source.
+
+Relevance caveat: this searches IA's entire audio-mediatype catalog with
+`advancedsearch.php`'s own relevance ranking — there is no curated
+sound-effects/field-recording collection filter. A plain query like "rain"
+can rank a music track titled "...Rain In Space Mix..." above an actual
+rain recording, because IA's scoring is a genuine title/text match, not a
+soundfetch bug. Callers wanting effect-like results should narrow with
+`tag`/`raw` filters (see `filters.py`) rather than relying on bare keywords.
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import requests
 
@@ -117,7 +126,7 @@ class ArchiveProvider:
             provider_id=identifier,
             name=doc.get("title") or identifier,
             url=f"https://archive.org/details/{identifier}",
-            download_url=DOWNLOAD_URL.format(identifier=identifier, filename=filename),
+            download_url=DOWNLOAD_URL.format(identifier=identifier, filename=quote(filename)),
             file_format=file_format,
             checksum=checksum,
             metadata={**doc, "filename": filename},
