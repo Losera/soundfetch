@@ -169,6 +169,11 @@ def download(
     dispatched to its registered provider (or an injected one via
     ``providers``).  Mixed-provider manifests therefore work correctly.
 
+    The returned list is in the same order as *refs*, regardless of how many
+    providers are mixed in or how they're interleaved — callers that zip the
+    input refs against this return value (to attach provider identity, since
+    ``DownloadResult`` carries none) can rely on positional correspondence.
+
     ``manifest`` defaults to ``dest_dir/manifest.jsonl``. ``workers > 1``
     downloads each provider group in parallel (bounded pool); ``pacing`` (a
     core.pacing.Pacing) paces every request across search + download so a
@@ -181,28 +186,28 @@ def download(
     dest = Path(dest_dir)
     man = Path(manifest) if manifest else dest / "manifest.jsonl"
 
-    grouped: dict[str, list[SoundRef]] = {}
-    for ref in refs:
-        grouped.setdefault(ref.provider, []).append(ref)
+    grouped: dict[str, list[tuple[int, SoundRef]]] = {}
+    for idx, ref in enumerate(refs):
+        grouped.setdefault(ref.provider, []).append((idx, ref))
 
-    results: list[DownloadResult] = []
-    for name, group in grouped.items():
+    results: list[DownloadResult | None] = [None] * len(refs)
+    for name, indexed_group in grouped.items():
         prov = _resolve_provider(name, providers)
-        results.extend(
-            download_refs(
-                prov,
-                group,
-                dest,
-                man,
-                resume=resume,
-                overwrite=overwrite,
-                fail_fast=fail_fast,
-                rate_delay=rate_delay,
-                workers=workers,
-                pacing=pacing,
-            )
+        group_results = download_refs(
+            prov,
+            [ref for _, ref in indexed_group],
+            dest,
+            man,
+            resume=resume,
+            overwrite=overwrite,
+            fail_fast=fail_fast,
+            rate_delay=rate_delay,
+            workers=workers,
+            pacing=pacing,
         )
-    return results
+        for (idx, _ref), result in zip(indexed_group, group_results):
+            results[idx] = result
+    return results  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
