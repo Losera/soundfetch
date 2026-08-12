@@ -18,7 +18,7 @@ from typing import Callable
 from .downloader import DownloadError
 from .manifest import append_record
 from .model import DownloadResult, SearchPage, SearchParams, SoundRef
-from .names import unique_path
+from .names import sanitize_ext, unique_path
 from .provider import ProgressCallback, Provider
 
 log = logging.getLogger(__name__)
@@ -203,7 +203,7 @@ def _attempt_download(
 
     # Name collision handling: unique within this run + on disk.
     stem = _safe_stem(ref)
-    ext = (ref.file_format or "bin").lstrip(".")
+    ext = sanitize_ext(ref.file_format, "bin")
     if lock is not None:
         with lock:
             target = unique_path(dest_dir, stem, ext, taken=taken)

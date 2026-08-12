@@ -32,6 +32,7 @@ import requests
 
 from ...core.downloader import DownloadError, stream_to_file
 from ...core.model import DownloadResult, SearchPage, SearchParams, SoundRef
+from ...core.names import sanitize_ext
 from ...core.net import get_json
 from ...core.provider import ProgressCallback
 from .filters import build_query
@@ -177,7 +178,7 @@ class ArchiveProvider:
         if not ref.download_url:
             raise DownloadError(f"no download URL for item {ref.provider_id}")
 
-        ext = ref.file_format or "bin"
+        ext = sanitize_ext(ref.file_format, "bin")
         final_path = target or (dest_dir / f"{ref.provider_id}.{ext}")
         written = stream_to_file(
             ref.download_url,

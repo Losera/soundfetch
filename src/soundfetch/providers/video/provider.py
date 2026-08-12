@@ -25,14 +25,18 @@ works without it installed; only actually using the provider requires it.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import socket
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
 from ...core.downloader import DownloadError, stream_to_file
 from ...core.model import DownloadResult, SearchPage, SearchParams, SoundRef
+from ...core.names import sanitize_ext
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +92,8 @@ class VideoProvider:
     def _list_entries(self, query: str, limit: int) -> list[dict]:
         if query in self._entries_cache:
             return self._entries_cache[query]
+        if _is_url(query) and not _is_safe_remote_url(query):
+            raise ValueError(f"refusing to fetch a private/internal URL: {query!r}")
         target = query if _is_url(query) else f"ytsearch{limit}:{query}"
         with _ydl(extract_flat=True) as ydl:
             info = ydl.extract_info(target, download=False)
@@ -162,7 +168,7 @@ class VideoProvider:
         if audio_format is None:
             raise DownloadError(f"no audio-only stream for video {ref.provider_id}")
 
-        ext = audio_format.get("ext") or ref.file_format or "m4a"
+        ext = sanitize_ext(audio_format.get("ext") or ref.file_format, "m4a")
         final_path = target or (dest_dir / f"{ref.provider_id}.{ext}")
         written = stream_to_file(
             audio_format["url"],
@@ -187,6 +193,47 @@ class VideoProvider:
 
 def _is_url(query: str) -> bool:
     return query.startswith("http://") or query.startswith("https://")
+
+
+def _is_safe_remote_url(url: str) -> bool:
+    """Reject URLs that resolve to a private, loopback, link-local, or
+    otherwise non-public address.
+
+    A URL-shaped `search_sounds` query is passed straight to yt-dlp's
+    extractor, which fetches it — and `query` is model-supplied over MCP,
+    so a prompt-injected instruction can plausibly reach this. Without this
+    check it's a direct SSRF primitive against the host running the server
+    (cloud metadata endpoints, internal services, ...).
+
+    This is DNS-resolution-time filtering, not a complete SSRF defense: it
+    does not protect against DNS rebinding between this check and yt-dlp's
+    own fetch.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = parsed.hostname
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            return False
+    return True
 
 
 def _pick_audio_format(formats: list[dict]) -> dict | None:

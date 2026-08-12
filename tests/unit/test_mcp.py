@@ -43,6 +43,15 @@ def _write_manifest(path: Path, records: list[dict[str, Any]]) -> None:
             f.write(json.dumps(r) + "\n")
 
 
+@pytest.fixture(autouse=True)
+def _mcp_workspace_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Confine the MCP path-confinement root to this test's tmp_path, so
+    tests that write manifests/output under tmp_path (the normal pattern in
+    this file) keep working without each one setting the env var by hand.
+    Tests exercising the confinement boundary itself override this."""
+    monkeypatch.setenv("SOUNDFETCH_MCP_ROOT", str(tmp_path))
+
+
 # ---------------------------------------------------------------------------
 # tool_search_sounds
 # ---------------------------------------------------------------------------
@@ -90,6 +99,41 @@ class TestToolSearchSounds:
 
         assert result["ok"] is False
         assert "error" in result
+
+    def test_manifest_path_escaping_workspace_is_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A model-chosen `manifest` path (plausibly reachable via a
+        prompt-injected instruction) must not be able to write outside the
+        soundfetch workspace, e.g. `~/.bashrc` (the H-5 finding)."""
+        monkeypatch.setenv("SOUNDFETCH_MCP_ROOT", str(tmp_path / "workspace"))
+        ref = make_ref("1")
+        page = type("SearchPage", (), {"results": [ref], "total": 1, "has_more": False})()
+        provider = FakeProvider(pages=[page])
+        outside = tmp_path / "outside" / "pwned.jsonl"
+
+        result = tool_search_sounds(
+            "rain", provider="fake", manifest=str(outside), providers={"fake": provider}
+        )
+
+        assert result["ok"] is False
+        assert "workspace" in result["error"]
+        assert not outside.exists()
+
+    def test_long_description_field_is_truncated(self, tmp_path: Path):
+        """Uploader-supplied free text (Freesound description/tags,
+        Archive.org title/description) reaches the model's context with no
+        other sanitization; length is capped as a blast-radius bound (H-4)."""
+        huge = "x" * 10_000
+        ref = make_ref("1", name="rain", metadata={"description": huge})
+        page = type("SearchPage", (), {"results": [ref], "total": 1, "has_more": False})()
+        provider = FakeProvider(pages=[page])
+
+        result = tool_search_sounds("rain", provider="fake", providers={"fake": provider})
+
+        description = result["results"][0]["metadata"]["description"]
+        assert len(description) < len(huge)
+        assert description.endswith("[truncated]")
 
 
 # ---------------------------------------------------------------------------

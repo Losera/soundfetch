@@ -17,6 +17,7 @@ import requests
 
 from ...core.downloader import DownloadError, stream_to_file
 from ...core.model import DownloadResult, SearchPage, SearchParams, SoundRef
+from ...core.names import sanitize_ext
 from ...core.net import get_json
 from .auth import AuthError, OAuthClient, TokenStore
 from .filters import build_filter
@@ -126,7 +127,6 @@ class FreesoundProvider:
             "fields": DEFAULT_FIELDS,
             "page": page,
             "page_size": page_size,
-            "token": self.api_key,
         }
         if filter_str:
             query_params["filter"] = filter_str
@@ -136,10 +136,15 @@ class FreesoundProvider:
         if descriptors:
             query_params["fields"] = DEFAULT_FIELDS + "," + ",".join(descriptors)
 
+        # The API key travels as a header, not a query param: a query param
+        # ends up in server/proxy access logs and — since it's part of the
+        # request URL — in any error message built from that URL (see
+        # core.net._redact_url, which covers the cases this doesn't).
         payload = get_json(
             self._session(),
             f"{BASE_URL}/search/",
             params=query_params,
+            headers={"Authorization": f"Token {self.api_key}"},
             limiter=self.rate_limiter,
         )
 
@@ -206,7 +211,7 @@ class FreesoundProvider:
         url = f"{BASE_URL}/sounds/{sound_id}/download/"
         headers = {"Authorization": f"Bearer {token}"}
 
-        ext = (ref.file_format or "wav").lstrip(".")
+        ext = sanitize_ext(ref.file_format, "wav")
         final_path = target or (dest_dir / f"{ref.provider_id}.{ext}")
         written = stream_to_file(
             url,

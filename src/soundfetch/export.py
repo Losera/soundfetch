@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 from .core.manifest import iter_latest
+from .core.names import sanitize_ext, sanitize_stem
 
 __all__ = ["to_webdataset", "export_attribution"]
 
@@ -77,6 +78,7 @@ def _select_downloaded(
     manifest = Path(manifest)
     dest_dir = Path(dest_dir) if dest_dir is not None else manifest.parent
 
+    resolved_dest = dest_dir.resolve()
     results: list[dict[str, Any]] = []
     for record in iter_latest(manifest):
         if record.get("status") != "downloaded":
@@ -85,7 +87,12 @@ def _select_downloaded(
         if not local_file:
             continue
 
-        local_path = (dest_dir / local_file).resolve()
+        local_path = (resolved_dest / local_file).resolve()
+        if not local_path.is_relative_to(resolved_dest):
+            # A manifest is a shareable, hand-editable artifact; a `local_file`
+            # of "/home/x/.ssh/id_ed25519" or "../../.env" must not be read
+            # and embedded into a shard the caller then publishes.
+            continue
         meta = record.get("metadata", {}) or {}
 
         enriched: dict[str, Any] = dict(record)
@@ -164,14 +171,18 @@ def to_webdataset(
         # Read audio bytes
         audio_bytes = Path(rec["local_path"]).read_bytes()
 
-        # Derive a key from provider + provider_id
-        key = f"{rec.get('provider', 'unknown')}_{rec.get('provider_id', '0')}"
+        # Derive a key from provider + provider_id. provider_id is remote
+        # data (e.g. an Internet Archive identifier is uploader-chosen) and
+        # becomes a tar member name, so it goes through the same allowlist
+        # as a local filename rather than being trusted verbatim.
+        provider_id = sanitize_stem(str(rec.get("provider_id", "0")), "0")
+        key = f"{rec.get('provider', 'unknown')}_{provider_id}"
 
         # Preserve the real audio extension (mp3/ogg/wav/flac/...) so shards
         # decode correctly — never hardcode one format.
-        ext = (
-            Path(rec["local_path"]).suffix.lstrip(".")
-            or (rec.get("file_format") or "bin").lstrip(".")
+        ext = sanitize_ext(
+            Path(rec["local_path"]).suffix.lstrip(".") or rec.get("file_format"),
+            "bin",
         )
 
         # Build metadata dict (exclude large/unnecessary fields)
