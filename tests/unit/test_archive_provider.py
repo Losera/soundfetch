@@ -145,6 +145,29 @@ class TestSearch:
         assert ref.download_url == "https://archive.org/download/item1/item1.wav"
         assert ref.metadata["filename"] == "item1.wav"
 
+    def test_download_url_percent_encodes_filename(
+        self, provider: ArchiveProvider, requests_mock
+    ):
+        requests_mock.get(
+            SEARCH_URL,
+            json=_search_payload(docs=[{"identifier": "item1", "title": "x"}]),
+        )
+        requests_mock.get(
+            METADATA_URL.format(identifier="item1"),
+            json=_metadata_payload(
+                [{"name": "For Now (Loz Goddard's Mix).m4a", "source": "original", "md5": "x"}]
+            ),
+        )
+        page = provider.search(SearchParams(query="rain", extra={"page": 1}))
+        ref = page.results[0]
+
+        assert ref.download_url == (
+            "https://archive.org/download/item1/"
+            "For%20Now%20%28Loz%20Goddard%27s%20Mix%29.m4a"
+        )
+        # unencoded filename is preserved in metadata for display purposes
+        assert ref.metadata["filename"] == "For Now (Loz Goddard's Mix).m4a"
+
     def test_prefers_best_extension_when_all_derivative(
         self, provider: ArchiveProvider, requests_mock
     ):
