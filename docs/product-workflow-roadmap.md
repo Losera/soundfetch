@@ -1,8 +1,10 @@
 # Soundfetch product and workflow roadmap
 
 **Status:** Product hypotheses and sequencing guidance; not an approved
-implementation plan  
-**Last reviewed:** 2026-08-12  
+implementation plan
+
+**Last reviewed:** 2026-08-12
+
 **Current release focus:** 0.4.0 beta candidate
 
 This document consolidates the product, workflow, scale, and portfolio ideas
