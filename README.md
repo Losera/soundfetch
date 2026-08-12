@@ -321,6 +321,31 @@ shards by default. The export extra also includes SoundFile for real-audio
 integration validation. A Hugging Face `datasets` exporter was deliberately
 deferred; see [`docs/deferred-work.md`](docs/deferred-work.md).
 
+## Future provider candidates
+
+This is an investigation backlog, not a compatibility promise. A provider
+should be added only when it serves a demonstrated user workflow, exposes a
+maintainable programmatic interface, permits the intended downloads, and can
+map provenance and licensing into the existing manifest without weakening its
+guarantees.
+
+| Candidate | What it would add | Main integration question |
+|---|---|---|
+| [Openverse](https://api.openverse.org/) | A broad, normalized search over openly licensed audio, including a `sound_effect` category and anonymous API access | How should Soundfetch preserve the original source identity and deduplicate results already available through Freesound or Internet Archive? |
+| [Wikimedia Commons](https://www.mediawiki.org/wiki/API:Imageinfo) | Historical recordings, pronunciations, speeches, music, and community-contributed audio with rich attribution metadata | Can file search, `imageinfo`, and Commons extension metadata be normalized reliably enough to enforce per-file rights and attribution? |
+| [Library of Congress](https://www.loc.gov/apis/json-and-yaml/) | Publicly searchable historical and cultural audio collections without an API key | Rights and downloadable-media availability vary by item, so discovery must not imply permission or a usable audio file. |
+| [xeno-canto](https://xeno-canto.org/explore/api) | A focused wildlife and bioacoustics source that would serve field-recording and audio-ML users | Confirm current API access, reuse terms, attribution requirements, and acceptable automated-download behavior before design work. |
+| [Jamendo](https://developer.jamendo.com/v3.0/tracks) | Searchable Creative Commons music with musical metadata and stream/download URLs | The provider must honor `audiodownload_allowed`, distinguish streaming from downloading, and represent licenses Soundfetch does not currently accept. |
+| [Zenodo](https://developers.zenodo.org/) | Versioned research deposits, DOIs, checksums, and downloadable audio datasets | Zenodo records often contain archives or heterogeneous files rather than individual sounds; decide whether this belongs in the provider model or a dataset-ingestion layer. |
+| [Hugging Face Hub](https://huggingface.co/docs/hub/datasets-audio) | Versioned community audio datasets, including audio files, Parquet, and WebDataset layouts | Repository snapshots and dataset rows do not naturally map one-to-one to `SoundRef`; integration may fit an import/export adapter better than a search provider. |
+
+Openverse is the strongest next general-purpose candidate because its audio
+search and license metadata closely resemble Soundfetch's existing model.
+xeno-canto is the strongest specialized candidate because it adds a distinct
+bioacoustics corpus rather than another broad media catalog. Zenodo and the
+Hugging Face Hub should remain discovery work until Soundfetch decides whether
+dataset-level sources belong behind the current per-sound provider interface.
+
 ## Development and release status
 
 Create a worktree-local environment and run the offline suite:
