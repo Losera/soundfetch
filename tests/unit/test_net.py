@@ -4,6 +4,7 @@ import pytest
 import requests
 
 from soundfetch.core.net import HttpError, RateLimitError, get_json, retry
+from soundfetch.core.net import _redact_url
 
 
 @pytest.fixture(autouse=True)
@@ -118,3 +119,47 @@ class TestGetJson:
         with pytest.raises(HttpError) as excinfo:
             get_json(session, "https://example.test/thing")
         assert "nope" in str(excinfo.value)
+
+
+class TestRedactUrl:
+    def test_redacts_token_param(self):
+        result = _redact_url("https://freesound.org/apiv2/search/?query=x&token=SECRET123")
+        assert "SECRET123" not in result
+        assert "token=" in result
+
+    def test_leaves_non_sensitive_params_alone(self):
+        result = _redact_url("https://example.test/search?query=rain&page=2")
+        assert "query=rain" in result
+        assert "page=2" in result
+
+    def test_no_query_string_is_unchanged(self):
+        assert _redact_url("https://example.test/thing") == "https://example.test/thing"
+
+    def test_empty_url_is_unchanged(self):
+        assert _redact_url("") == ""
+
+
+class TestHttpErrorRedaction:
+    def test_query_string_secret_does_not_appear_in_message_or_url_attr(self):
+        exc = HttpError(429, "Too Many Requests", "https://freesound.org/apiv2/search/?token=LEAKED_KEY")
+        assert "LEAKED_KEY" not in str(exc)
+        assert "LEAKED_KEY" not in exc.url
+
+    def test_this_is_what_a_real_freesound_429_would_have_leaked(
+        self, session: requests.Session, requests_mock
+    ):
+        """End-to-end: a rate-limited search must not leak the API key
+        through get_json()'s HttpError, even if some future call site puts
+        the key back in the query string."""
+        requests_mock.get(
+            "https://freesound.org/apiv2/search/",
+            status_code=429,
+            json={"detail": "Request was throttled."},
+        )
+        with pytest.raises(HttpError) as excinfo:
+            get_json(
+                session,
+                "https://freesound.org/apiv2/search/",
+                params={"query": "rain", "token": "sk-real-secret-key"},
+            )
+        assert "sk-real-secret-key" not in str(excinfo.value)

@@ -7,6 +7,7 @@ import random
 import time
 from email.utils import parsedate_to_datetime
 from typing import Callable, TypeVar
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import requests
@@ -15,7 +16,31 @@ log = logging.getLogger(__name__)
 
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
+# Query-parameter names that commonly carry credentials. A provider API key
+# or session token in the query string (Freesound's `token=`, a signed
+# download URL's `key=`, ...) must never survive into an error message: that
+# message can land in an MCP tool response shown to a model, in a shared
+# manifest.jsonl, or in a log file.
+_SENSITIVE_PARAMS = {
+    "token", "api_key", "apikey", "key", "secret",
+    "access_token", "client_secret", "password", "auth",
+}
+
 T = TypeVar("T")
+
+
+def _redact_url(url: str) -> str:
+    """Replace sensitive query-parameter values in `url` with `***`."""
+    if not url or "?" not in url:
+        return url
+    parsed = urlsplit(url)
+    if not parsed.query:
+        return url
+    params = parse_qsl(parsed.query, keep_blank_values=True)
+    redacted = [
+        (k, "***" if k.lower() in _SENSITIVE_PARAMS else v) for k, v in params
+    ]
+    return urlunsplit(parsed._replace(query=urlencode(redacted)))
 
 
 class HttpError(Exception):
@@ -24,10 +49,10 @@ class HttpError(Exception):
     def __init__(self, status: int | None, reason: str, url: str = ""):
         self.status = status
         self.reason = reason
-        self.url = url
+        self.url = _redact_url(url)
         msg = f"HTTP {status} {reason}" if status else reason
-        if url:
-            msg += f" ({url})"
+        if self.url:
+            msg += f" ({self.url})"
         super().__init__(msg)
 
 

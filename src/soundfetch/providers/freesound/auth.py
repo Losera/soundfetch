@@ -72,13 +72,25 @@ class TokenStore:
 
     def save(self, token: Token) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.path.parent, 0o700)
         payload = {
             "access_token": token.access_token,
             "refresh_token": token.refresh_token,
             "expires_at": token.expires_at,
             "scope": token.scope,
         }
-        self.path.write_text(json.dumps(payload))
+        data = json.dumps(payload).encode()
+        # Create the file at 0600 from the start. write_text() + a
+        # subsequent os.chmod() leaves a window — default umask permissions
+        # until the chmod runs, or permanently if the process dies between
+        # the two calls — where the access and refresh tokens are
+        # world-readable.
+        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        # O_CREAT's mode only applies when the file didn't already exist —
+        # an upgrade from a version that left a looser-permissioned file
+        # behind wouldn't otherwise be tightened on the next save.
         os.chmod(self.path, 0o600)
 
 

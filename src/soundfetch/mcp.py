@@ -13,6 +13,12 @@ Tool functions are plain callables with injectable deps so they can be
 unit-tested without installing the ``mcp`` SDK. Only ``create_server()``
 and ``run()`` import ``mcp``.
 
+``search_sounds``' ``manifest`` and ``download_manifest``'s ``manifest``/
+``dest_dir`` are all model-supplied and confined to a workspace root — by
+default wherever the server process is launched from, overridable with the
+``SOUNDFETCH_MCP_ROOT`` environment variable — so pass paths relative to
+that root, not arbitrary absolute paths.
+
 Examples
 --------
 Register in Claude Desktop ``claude_desktop_config.json``::
@@ -21,21 +27,24 @@ Register in Claude Desktop ``claude_desktop_config.json``::
       "mcpServers": {
         "soundfetch": {
           "command": "soundfetch",
-          "args": ["mcp"]
+          "args": ["mcp"],
+          "env": {"SOUNDFETCH_MCP_ROOT": "/path/to/workspace"}
         }
       }
     }
 
 Then use the tools:
 - ``search_sounds("piano", license="cc0", max_results=10)``
-- ``download_manifest("/path/to/manifest.jsonl", "/path/to/out/")``
+- ``download_manifest("manifest.jsonl", "out/")``
 - ``list_sources()``
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 __all__ = [
@@ -46,6 +55,48 @@ __all__ = [
     "create_server",
     "run",
 ]
+
+# Every path an MCP tool accepts comes from a model, which may itself be
+# driven by untrusted instructions embedded in remote data (a
+# prompt-injected Freesound/Archive description, say). `manifest`/`dest_dir`
+# args are confined to this root so that injection can't turn into a write
+# or read anywhere the process has permission to touch. Overridable per
+# deployment; defaults to wherever the server was launched from.
+_MCP_ROOT_ENV = "SOUNDFETCH_MCP_ROOT"
+
+# Uploader-supplied free text (Freesound `description`/`tags`, Archive.org
+# `title`/`description`, ...) reaches search results with no other
+# sanitization. Capping field length doesn't make that text trustworthy, but
+# it bounds how large a single tool call's injected payload can be.
+_MAX_FIELD_CHARS = 500
+
+
+def _workspace_root() -> Path:
+    return Path(os.environ.get(_MCP_ROOT_ENV, os.getcwd())).resolve()
+
+
+def _confine_path(root: Path, raw: str, *, param: str) -> Path:
+    """Resolve `raw` against `root`; reject anything that escapes it."""
+    resolved = (root / Path(raw)).resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError(
+            f"{param} must stay within the soundfetch workspace "
+            f"({root}); got {raw!r}. Set {_MCP_ROOT_ENV} to change the workspace."
+        )
+    return resolved
+
+
+def _truncate_strings(value: Any) -> Any:
+    """Cap the length of every string reachable from `value`."""
+    if isinstance(value, str):
+        if len(value) > _MAX_FIELD_CHARS:
+            return value[:_MAX_FIELD_CHARS] + "…[truncated]"
+        return value
+    if isinstance(value, dict):
+        return {k: _truncate_strings(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_truncate_strings(v) for v in value]
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -76,10 +127,19 @@ def tool_search_sounds(
         ``{"ok": True, "count": int, "results": [...]}``
         or with ``"manifest": str`` if *manifest* was given.
         ``{"ok": False, "error": "message"}`` on failure.
+
+    ``manifest``, if given, must resolve within the soundfetch workspace
+    (see ``SOUNDFETCH_MCP_ROOT``). Result strings (titles, descriptions,
+    tags — uploader-supplied text from the provider) are length-capped.
     """
     from . import api
 
     try:
+        manifest_path = (
+            _confine_path(_workspace_root(), manifest, param="manifest")
+            if manifest
+            else None
+        )
         refs = api.search(
             query,
             provider=provider,
@@ -90,11 +150,11 @@ def tool_search_sounds(
         result: dict[str, Any] = {
             "ok": True,
             "count": len(refs),
-            "results": [asdict(r) for r in refs],
+            "results": [_truncate_strings(asdict(r)) for r in refs],
         }
-        if manifest:
-            api.save_search(refs, manifest)
-            result["manifest"] = str(manifest)
+        if manifest_path:
+            api.save_search(refs, manifest_path)
+            result["manifest"] = str(manifest_path)
         return result
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -126,11 +186,18 @@ def tool_download_manifest(
     Returns:
         ``{"ok": True, "downloaded": N, "skipped": N, "failed": N}``
         or ``{"ok": False, "error": "message"}``.
+
+    ``manifest`` and ``dest_dir`` must both resolve within the soundfetch
+    workspace (see ``SOUNDFETCH_MCP_ROOT``).
     """
     from . import api
 
     try:
-        refs = api.refs_from_manifest(manifest, skip_downloaded=False)
+        root = _workspace_root()
+        manifest_path = _confine_path(root, manifest, param="manifest")
+        dest_path = _confine_path(root, dest_dir, param="dest_dir")
+
+        refs = api.refs_from_manifest(manifest_path, skip_downloaded=False)
         if not refs:
             return {
                 "ok": True,
@@ -141,8 +208,8 @@ def tool_download_manifest(
             }
         results = api.download(
             refs,
-            dest_dir=dest_dir,
-            manifest=manifest,
+            dest_dir=dest_path,
+            manifest=manifest_path,
             resume=resume,
             overwrite=overwrite,
             fail_fast=fail_fast,

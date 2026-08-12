@@ -14,6 +14,7 @@ from soundfetch.core.downloader import DownloadError
 from soundfetch.core.model import SearchParams, SoundRef
 from soundfetch.providers.video.provider import (
     VideoProvider,
+    _is_safe_remote_url,
     _is_url,
     _matches_license,
     _pick_audio_format,
@@ -28,6 +29,55 @@ class TestIsUrl:
 
     def test_plain_text_is_not_a_url(self):
         assert _is_url("rain ambience") is False
+
+
+class TestIsSafeRemoteUrl:
+    """SSRF guard: a URL-shaped `search_sounds` query goes straight to
+    yt-dlp's extractor, and `query` is model-supplied over MCP."""
+
+    def test_rejects_non_http_scheme(self):
+        assert _is_safe_remote_url("ftp://example.com/x") is False
+
+    def test_rejects_url_without_host(self):
+        assert _is_safe_remote_url("http:///x") is False
+
+    def test_rejects_loopback_ip_literal(self):
+        assert _is_safe_remote_url("http://127.0.0.1/x") is False
+
+    def test_rejects_cloud_metadata_ip(self):
+        assert _is_safe_remote_url("http://169.254.169.254/latest/meta-data/") is False
+
+    def test_rejects_private_range_ip(self):
+        assert _is_safe_remote_url("http://10.0.0.5:8080/admin") is False
+
+    def test_rejects_ipv6_loopback(self):
+        assert _is_safe_remote_url("http://[::1]:8080/") is False
+
+    def test_rejects_unresolvable_host(self, monkeypatch: pytest.MonkeyPatch):
+        import socket
+
+        def raise_gaierror(host, port):
+            raise socket.gaierror("no such host")
+
+        monkeypatch.setattr(socket, "getaddrinfo", raise_gaierror)
+        assert _is_safe_remote_url("http://nonexistent.invalid/x") is False
+
+    def test_accepts_public_address(self, monkeypatch: pytest.MonkeyPatch):
+        import socket
+
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda host, port: [(socket.AF_INET, None, None, None, ("93.184.216.34", 0))],
+        )
+        assert _is_safe_remote_url("https://example.com/watch") is True
+
+
+class TestListEntriesSsrfGuard:
+    def test_private_ip_query_is_rejected_before_reaching_yt_dlp(self):
+        provider = VideoProvider()
+        with pytest.raises(ValueError, match="private/internal"):
+            provider._list_entries("http://169.254.169.254/latest/meta-data/", 10)
 
 
 class TestPickAudioFormat:

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from soundfetch.core.names import sanitize_stem, unique_path
+import pytest
+
+from soundfetch.core.names import sanitize_ext, sanitize_stem, unique_path
 
 
 class TestSanitizeStem:
@@ -50,3 +52,43 @@ class TestUniquePath:
     def test_ext_leading_dot_is_stripped(self, tmp_path: Path):
         result = unique_path(tmp_path, "piano", ".mp3")
         assert result == tmp_path / "piano.mp3"
+
+    def test_traversal_in_unsanitized_ext_is_rejected(self, tmp_path: Path):
+        """A caller that skips sanitize_ext() must fail loudly rather than
+        silently write outside dest_dir (the H-1 finding)."""
+        with pytest.raises(ValueError, match="escapes destination directory"):
+            unique_path(tmp_path, "piano", "../../../../etc/cron.d/evil")
+
+    def test_traversal_in_unsanitized_stem_is_rejected(self, tmp_path: Path):
+        with pytest.raises(ValueError, match="escapes destination directory"):
+            unique_path(tmp_path, "../../../../etc/cron.d/evil", "mp3")
+
+
+class TestSanitizeExt:
+    def test_keeps_plain_extension(self):
+        assert sanitize_ext("mp3", "bin") == "mp3"
+
+    def test_strips_leading_dot(self):
+        assert sanitize_ext(".wav", "bin") == "wav"
+
+    def test_drops_traversal_and_separators(self):
+        result = sanitize_ext("../../../../home/user/.bashrc", "bin")
+        assert "/" not in result
+        assert ".." not in result
+
+    def test_none_falls_back(self):
+        assert sanitize_ext(None, "bin") == "bin"
+
+    def test_empty_falls_back(self):
+        assert sanitize_ext("", "bin") == "bin"
+
+    def test_only_junk_falls_back(self):
+        assert sanitize_ext("../../", "bin") == "bin"
+
+    def test_caps_length(self):
+        result = sanitize_ext("a" * 100, "bin")
+        assert len(result) <= 12
+
+    def test_null_byte_is_dropped(self):
+        result = sanitize_ext("mp3\x00.desktop", "bin")
+        assert "\x00" not in result

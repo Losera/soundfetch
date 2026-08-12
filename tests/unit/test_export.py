@@ -105,6 +105,35 @@ class TestSelectDownloaded:
         assert results[0]["author"] == ""
         assert results[0]["license_text"] == ""
 
+    def test_absolute_local_file_outside_dest_dir_is_skipped(self, tmp_path: Path):
+        """A shared, hand-editable manifest.jsonl is untrusted input; a
+        `local_file` of "/home/x/.ssh/id_ed25519" must not be read and
+        embedded into a shard the caller then publishes (the L-2 finding)."""
+        secret = tmp_path / "secret.txt"
+        secret.write_text("do not export me")
+        manifest = tmp_path / "manifest.jsonl"
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _write_manifest(manifest, [
+            _make_record("1", status="downloaded", local_file=str(secret)),
+        ])
+
+        results = _select_downloaded(manifest, dest_dir=out_dir)
+        assert results == []
+
+    def test_traversal_local_file_outside_dest_dir_is_skipped(self, tmp_path: Path):
+        secret = tmp_path / "secret.txt"
+        secret.write_text("do not export me")
+        manifest = tmp_path / "manifest.jsonl"
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _write_manifest(manifest, [
+            _make_record("1", status="downloaded", local_file="../secret.txt"),
+        ])
+
+        results = _select_downloaded(manifest, dest_dir=out_dir)
+        assert results == []
+
 
 # ---------------------------------------------------------------------------
 # export_attribution
@@ -208,3 +237,32 @@ class TestToWebdataset:
 
         with pytest.raises(ValueError, match="no downloaded sounds"):
             to_webdataset(manifest, dest_dir=tmp_path, out_dir=str(tmp_path / "shards"))
+
+    def test_traversal_in_provider_id_does_not_reach_the_tar_member_name(self, tmp_path: Path):
+        """An Internet Archive `identifier` is uploader-chosen and becomes
+        `provider_id`; unsanitized, it becomes a tar member name with no
+        normalization (the M-9 finding)."""
+        pytest.importorskip("webdataset")
+        soundfile = pytest.importorskip("soundfile")
+        import numpy as np
+        import webdataset as wds
+
+        from soundfetch.export import to_webdataset
+
+        manifest = tmp_path / "manifest.jsonl"
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        wav_path = out_dir / "1.wav"
+        soundfile.write(wav_path, np.zeros(1600, dtype="float32"), 16000)
+
+        _write_manifest(manifest, [
+            _make_record("../../../etc/evil", local_file="1.wav", name="rain"),
+        ])
+
+        shard_dir = tmp_path / "shards"
+        shards = to_webdataset(manifest, dest_dir=out_dir, out_dir=str(shard_dir))
+
+        samples = list(wds.WebDataset(str(shards[0]), shardshuffle=False).decode())
+        key = samples[0]["__key__"]
+        assert "/" not in key
+        assert ".." not in key

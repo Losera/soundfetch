@@ -106,13 +106,24 @@ class TestSearch:
         with pytest.raises(RuntimeError):
             provider.search(SearchParams(query="piano", extra={"page": 1}))
 
-    def test_sends_query_page_and_token(self, provider: FreesoundProvider, requests_mock):
+    def test_sends_query_and_page(self, provider: FreesoundProvider, requests_mock):
         requests_mock.get(f"{BASE_URL}/search/", json=_search_payload())
         provider.search(SearchParams(query="piano", extra={"page": 2}))
         qs = _qs(requests_mock.last_request.url)
         assert qs["query"] == ["piano"]
         assert qs["page"] == ["2"]
-        assert qs["token"] == ["test-key"]
+
+    def test_sends_api_key_as_header_not_query_param(
+        self, provider: FreesoundProvider, requests_mock
+    ):
+        """The key must not appear in the URL: a query param ends up in
+        server/proxy access logs and in any error message built from the
+        request URL (manifest, MCP tool response, CLI --json output)."""
+        requests_mock.get(f"{BASE_URL}/search/", json=_search_payload())
+        provider.search(SearchParams(query="piano", extra={"page": 1}))
+        request = requests_mock.last_request
+        assert "token" not in _qs(request.url)
+        assert request.headers["Authorization"] == "Token test-key"
 
     def test_page_size_is_capped_at_150(self, provider: FreesoundProvider, requests_mock):
         requests_mock.get(f"{BASE_URL}/search/", json=_search_payload())
