@@ -7,7 +7,8 @@ actually produced; it does not authorize tagging or publication.
 ## 1. MCP host readiness
 
 - [x] Unit and subprocess protocol coverage exists in CI.
-- [ ] Complete and record the manual Claude Desktop trial below.
+- [x] Complete and record the manual Claude Desktop trial below (scoped to one
+      unofficial Linux packaging — see caveats in the table).
 
 The copy-ready host prompt is in `docs/claude-desktop-trial-prompt.md`.
 
@@ -25,13 +26,50 @@ Manual trial procedure:
 
 | Field | Result |
 |---|---|
-| Date / tester | Pending |
-| OS / Claude Desktop | Pending |
-| Commit / wheel / SHA-256 | Pending |
-| Tool discovery | Pending |
-| Provider status | Pending |
-| Bounded search | Pending |
-| Shutdown and cleanup | Pending |
+| Date / tester | 2026-08-11, Juan Naranjo |
+| OS / Claude Desktop | Claude Desktop 1.24012.9, Arch Linux (rolling, x86_64), kernel 7.1.4-arch1-1. **Not an officially supported platform**: Anthropic's Linux Desktop beta (launched 2026-06-30) officially supports only Ubuntu 22.04+/Debian 12+ via apt; this run used the `claude-desktop` AUR package (v1.24012.9-1), an unofficial repackaging of the same upstream `.deb` — unsigned (`Validated By: None`), built locally from a PKGBUILD. See sources below. |
+| Commit / wheel / SHA-256 | `b1ace99bffe3ce2b553244100010045c739e47fb` / `soundfetch-0.4.0-py3-none-any.whl` / `7960914a429d41dcdafa6773141444a57b83e0990fec33fe9d8d8816a0e4534f` |
+| Tool discovery | Pass — all 4 tools (`list_sources`, `check_provider_status`, `search_sounds`, `download_manifest`) resolved with full parameter schemas. |
+| Provider status | Pass — `check_provider_status("archive")` → `{"ok": true, ...}`, no auth required. |
+| Bounded search | Pass — `search_sounds(archive, "rain", max_results=1)` returned exactly 1 result as clean structured JSON; no log/progress bleed into the payload. |
+| Shutdown and cleanup | Not verified — not exercised or reported in this run. |
+
+**Scope caveats:**
+- Tested on unofficial Arch/AUR packaging only. macOS, Windows, and the
+  officially supported Linux distros (Ubuntu/Debian) remain untested.
+- `download_manifest` was **not** called in this trial (the prompt
+  intentionally skips downloads) — the stdio path most likely to break under
+  a real host (progress output corrupting the JSON stream) is still untested
+  through Claude Desktop specifically. It was separately verified through
+  soundfetch's own MCP tools directly (not through Desktop) — see
+  `docs/deferred-work.md`.
+- "No unexpected files created" was not independently confirmed — absence of
+  a written-path reference in the three responses, not a filesystem check.
+
+**Findings surfaced by this trial (not blocking, filed as issues):**
+- [#13](https://github.com/Losera/soundfetch/issues/13) — Archive
+  `download_url` values contain raw unencoded spaces (e.g. `.../For Now
+  (Loz Goddard_s Rain In Space Mix).m4a`); a naive HTTP client could fail or
+  mangle the request.
+- [#14](https://github.com/Losera/soundfetch/issues/14) — Archive-provider
+  relevance for simple queries is weak: `rain` returned a house-remix track
+  whose title merely contains the word "Rain," not an actual rain-sound
+  recording. Protocol behavior is correct; result quality may surprise
+  first-time testers.
+
+Sources: [Anthropic releases Claude Desktop app beta for Linux users](https://cryptobriefing.com/anthropic-claude-desktop-linux-beta/), [Claude Desktop for Linux: Anthropic Launches the Official Beta](https://basic-tutorials.com/news/claude-desktop-for-linux-anthropic-launches-the-official-beta/)
+
+**Supplementary non-Desktop smoke test (does not satisfy the gate above).**
+On 2026-08-11, the three bounded calls (`list_sources`, `check_provider_status`
+for `archive`, `search_sounds` for `archive`/`rain`/`max_results=1`) were run
+against commit `b1ace99` / wheel `soundfetch-0.4.0-py3-none-any.whl` (sha256
+`7960914a...e4534f`) in a Cowork sandbox, not Claude Desktop. All three
+succeeded with clean structured JSON, no stderr/log bleed into the payload,
+`max_results` respected, and no files written. Host shutdown was not
+exercised. This confirms the MCP server itself behaves correctly but does not
+substitute for the Desktop trial: no Desktop version/OS was recorded, and the
+client was a different MCP host implementation than the one being advertised
+as compatible.
 
 ## 2. Deterministic verification
 
@@ -107,6 +145,10 @@ to obtain favorable numbers.
 
 ## Release decision
 
-**Not release-ready yet.** The manual Claude Desktop trial and human semantic
-diff review remain mandatory. Any failed deterministic/package check adds a new
-gate; no tag or publication is authorized by this document.
+**Not release-ready yet.** Human semantic diff review remains mandatory. The
+manual Claude Desktop trial is now recorded, but scoped to one unofficial
+Linux packaging (Arch/AUR) — if the 0.4.0 beta claim is meant to cover
+macOS/Windows/official-Linux users, or a Docker-packaged distribution, those
+remain untested and are separate open items, not implied by this record. Any
+failed deterministic/package check adds a new gate; no tag or publication is
+authorized by this document.

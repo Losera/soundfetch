@@ -93,3 +93,30 @@ API contracts, restore only the selected files and dependency group, add
 real-dependency integration coverage that actually runs in CI, and run the
 current verification suite. Treat restoration as a new public-API proposal
 requiring semantic review.
+
+## `download_manifest` end-to-end path (incant-audio integration)
+
+The MCP compatibility smoke tests (`list_sources`, `check_provider_status`,
+`search_sounds`) only exercised the read-only half of the workflow. Whether
+`download_manifest` actually fetches a file, verifies its checksum, and
+writes it somewhere the incant-audio sampler flow could pick up was
+unverified until 2026-08-12.
+
+**Manually verified 2026-08-12** (Archive provider only): ran the real
+two-phase flow — `search_sounds(query="rain", provider="archive",
+max_results=1, manifest=...)` followed by `download_manifest(manifest=...,
+dest_dir=...)` — against the live Internet Archive API. The file
+(`For_Now_Loz_Goddard_S_Rain_In_Space_Mix.m4a`, 5,629,104 bytes) landed on
+disk with an MD5 matching the manifest's advertised checksum
+(`3ed40e43c7506a093be93581c8a9a7ff`), and the manifest record was correctly
+upgraded from `status: "listed"` to `status: "downloaded"` with byte count,
+timing, and `local_file`. Checksum verification itself lives in
+`core/downloader.py` (`SoundfetchDownloadError` on mismatch), not something
+`download_manifest` re-implements.
+
+**Still not covered:** the Freesound and video providers, `overwrite`/
+`resume`/`fail_fast` behavior, concurrent `workers`, and checksum-mismatch
+handling in practice (only the happy path was exercised). None of this was
+run through incant-audio itself — only through soundfetch's own MCP tools
+directly — so whether the output layout/naming is what incant-audio expects
+to consume is still unconfirmed.
