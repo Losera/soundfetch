@@ -1,0 +1,13 @@
+provider,configuration,provider_id,name,bytes,size_mb,started_at,elapsed_s,completion_s,cumulative_bytes,local_file
+freesound,freesound/w1,34069,AMBIENT - Rain - On Pavement (LOOP).mp3,182886,0.17441368103027344,2026-08-12T04:33:09+00:00,1.746,1.746,182886,AMBIENT_-_Rain_-_On_Pavement_LOOP_.mp3.mp3
+freesound,freesound/w1,34069,AMBIENT - Rain - On Pavement (LOOP).mp3,182886,0.17441368103027344,2026-08-12T04:33:14+00:00,1.759,1.759,182886,AMBIENT_-_Rain_-_On_Pavement_LOOP_.mp3.mp3
+freesound,freesound/w1,34069,AMBIENT - Rain - On Pavement (LOOP).mp3,182886,0.17441368103027344,2026-08-12T04:33:19+00:00,1.578,1.578,182886,AMBIENT_-_Rain_-_On_Pavement_LOOP_.mp3.mp3
+freesound,freesound/w4,34069,AMBIENT - Rain - On Pavement (LOOP).mp3,182886,0.17441368103027344,2026-08-12T04:33:23+00:00,1.624,1.624,182886,AMBIENT_-_Rain_-_On_Pavement_LOOP_.mp3.mp3
+freesound,freesound/w4,34069,AMBIENT - Rain - On Pavement (LOOP).mp3,182886,0.17441368103027344,2026-08-12T04:33:29+00:00,1.763,1.763,182886,AMBIENT_-_Rain_-_On_Pavement_LOOP_.mp3.mp3
+freesound,freesound/w4,34069,AMBIENT - Rain - On Pavement (LOOP).mp3,182886,0.17441368103027344,2026-08-12T04:33:34+00:00,1.628,1.628,182886,AMBIENT_-_Rain_-_On_Pavement_LOOP_.mp3.mp3
+archive,archive/w1,acidplanet-audio-00095729,rain,377230,0.3597545623779297,2026-08-12T04:34:32+00:00,1.599,1.599,377230,rain.ogg
+archive,archive/w1,acidplanet-audio-00095729,rain,377230,0.3597545623779297,2026-08-12T04:35:24+00:00,1.722,1.722,377230,rain.ogg
+archive,archive/w1,acidplanet-audio-00095729,rain,377230,0.3597545623779297,2026-08-12T04:36:16+00:00,3.234,3.234,377230,rain.ogg
+archive,archive/w4,acidplanet-audio-00095729,rain,377230,0.3597545623779297,2026-08-12T04:37:10+00:00,1.834,1.834,377230,rain.ogg
+archive,archive/w4,acidplanet-audio-00095729,rain,377230,0.3597545623779297,2026-08-12T04:38:01+00:00,1.615,1.615,377230,rain.ogg
+archive,archive/w4,acidplanet-audio-00095729,rain,377230,0.3597545623779297,2026-08-12T04:38:54+00:00,1.346,1.346,377230,rain.ogg

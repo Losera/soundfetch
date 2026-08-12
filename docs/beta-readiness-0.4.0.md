@@ -46,16 +46,21 @@ Manual trial procedure:
 - "No unexpected files created" was not independently confirmed — absence of
   a written-path reference in the three responses, not a filesystem check.
 
-**Findings surfaced by this trial (not blocking, filed as issues):**
+**Findings surfaced by this trial (not blocking, filed as issues — both now
+resolved, see below):**
 - [#13](https://github.com/Losera/soundfetch/issues/13) — Archive
   `download_url` values contain raw unencoded spaces (e.g. `.../For Now
   (Loz Goddard_s Rain In Space Mix).m4a`); a naive HTTP client could fail or
-  mangle the request.
+  mangle the request. **Fixed** in `991ce3b` (percent-encodes the filename
+  segment); closed 2026-08-12.
 - [#14](https://github.com/Losera/soundfetch/issues/14) — Archive-provider
   relevance for simple queries is weak: `rain` returned a house-remix track
   whose title merely contains the word "Rain," not an actual rain-sound
   recording. Protocol behavior is correct; result quality may surprise
-  first-time testers.
+  first-time testers. **Documented** (not changed) in `991ce3b` — this is IA's
+  own relevance ranking over its full audio catalog, not a soundfetch defect;
+  the docstring/README now point callers wanting effect-like results at
+  `tag`/`raw` filters instead of bare keywords. Closed 2026-08-12.
 
 Sources: [Anthropic releases Claude Desktop app beta for Linux users](https://cryptobriefing.com/anthropic-claude-desktop-linux-beta/), [Claude Desktop for Linux: Anthropic Launches the Official Beta](https://basic-tutorials.com/news/claude-desktop-for-linux-anthropic-launches-the-official-beta/)
 
@@ -105,20 +110,25 @@ The retained 0.3.0 baseline is in
 candidates, three trials, worker counts 1 and 4, a 1 MB per-file cap, and a
 100 MB total cap.
 
-The like-for-like 0.4.0 attempt is in
-`benchmarks/review-20260811-0.4.0-evidence/`. It retained environment and failure
-metadata but produced no valid performance sample:
+The first like-for-like 0.4.0 attempt, `benchmarks/review-20260811-0.4.0-evidence/`,
+produced no valid sample (missing `FREESOUND_API_KEY`; no Archive candidate
+under the 1 MB cap in that run) and is retained as failure evidence, not a
+performance result.
 
-- all six Freesound configurations stopped because `FREESOUND_API_KEY` was not
-  configured;
-- all six Archive configurations completed discovery but found no candidate in
-  the first ten results whose advertised download size passed the 1 MB cap.
+**A second attempt on 2026-08-12, `benchmarks/review-20260812-0.4.0-evidence/`,
+used the identical bounded command (same query, caps, trials, and worker
+counts) and produced a full 12/12 valid sample** — 6 Freesound and 6 Archive
+configurations, zero failures. (The Archive discovery gap in the first attempt
+appears to have been day-to-day catalog/ranking variance from IA's own
+relevance scoring — consistent with the #14 finding — rather than a structural
+problem with the cap; no cap was relaxed to obtain this result.)
 
-These are failed benchmark configurations, not performance results. No
-regression or improvement claim can be made. Re-run the identical bounded
-command with a Freesound key and an eligible Archive sample before release if a
-current performance comparison is required; do not relax the safety caps merely
-to obtain favorable numbers.
+Average throughput vs. the 0.3.0 baseline: Freesound 0.0986 → 0.1038 MB/s
+(+5.3%), Archive 0.2148 → 0.2052 MB/s (−4.5%). Both files involved are small
+(≈180 KB and ≈377 KB) and each configuration is a single-file, network-bound
+sample, so these deltas are within measurement noise — **no regression or
+improvement claim is made**. This closes the evidence gap (a valid sample now
+exists); it does not certify performance parity.
 
 ## Verification record
 
@@ -143,12 +153,48 @@ to obtain favorable numbers.
   configurations failed for the documented credential/eligibility reasons; it
   is retained as failure evidence, not reported as a passing benchmark.
 
+## Remaining blockers
+
+As of 2026-08-12, with PR #15 merged to `main` (`052ce74`), what still stands
+between this candidate and a beta claim:
+
+1. **Human semantic diff review** (item 1 of `docs/RELEASE.md` §5) has not
+   happened. This is the hard blocker; nothing else in this document
+   substitutes for it. During that review a real correctness bug was found and
+   fixed in PR #17 (not yet merged as of this writing): `api.download()`
+   silently reordered results relative to the input refs whenever a manifest
+   interleaved more than one provider, which corrupted the new
+   `download --json` contract's per-item `provider_id`/`status`/`checksum`
+   attribution — the exact feature the release notes market as stable for
+   external consumers. This is itself evidence for why the review step exists
+   and cannot be skipped or assumed satisfied by test counts alone.
+2. **MCP host trial (item 1 of the checklist) is recorded but narrower than a
+   beta claim needs**: unofficial Arch/AUR packaging only (macOS, Windows, and
+   the officially supported Ubuntu/Debian builds are untested); host shutdown/
+   cleanup was not exercised in the original recorded trial; `download_manifest`
+   has never been called through Claude Desktop itself (only through
+   soundfetch's own MCP client directly — see `docs/deferred-work.md`). A
+   follow-up trial exercising both gaps against the current (post-fix) wheel
+   is in progress as of this writing.
+3. **No tag exists and nothing is published.** Tagging and publication require
+   explicit human authorization per `docs/RELEASE.md` §5–6, which has not been
+   given.
+
+Items 2 (deterministic verification), 3 (release candidate validation), 4
+(Archive usability), and 5 (reproducible benchmark evidence, updated above) of
+the original five-point checklist are now satisfied. Item 1 (MCP host
+readiness) remains the only checklist item with open gaps, per point 2 above.
+
 ## Release decision
 
-**Not release-ready yet.** Human semantic diff review remains mandatory. The
-manual Claude Desktop trial is now recorded, but scoped to one unofficial
-Linux packaging (Arch/AUR) — if the 0.4.0 beta claim is meant to cover
-macOS/Windows/official-Linux users, or a Docker-packaged distribution, those
-remain untested and are separate open items, not implied by this record. Any
-failed deterministic/package check adds a new gate; no tag or publication is
-authorized by this document.
+**Not release-ready yet.** Human semantic diff review remains mandatory — and,
+per the note in "Remaining blockers" above, that review already earned its
+keep by catching a real silent-corruption bug (PR #17) in the candidate's
+headline JSON contract feature, which a passing test suite alone did not
+surface. The manual Claude Desktop trial is now recorded, but scoped to one
+unofficial Linux packaging (Arch/AUR) with shutdown and `download_manifest`
+gaps still open — if the 0.4.0 beta claim is meant to cover macOS/Windows/
+official-Linux users, or a Docker-packaged distribution, those remain untested
+and are separate open items, not implied by this record. The benchmark
+evidence gap is closed as of 2026-08-12. Any failed deterministic/package check
+adds a new gate; no tag or publication is authorized by this document.
