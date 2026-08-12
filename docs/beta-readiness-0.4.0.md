@@ -46,16 +46,21 @@ Manual trial procedure:
 - "No unexpected files created" was not independently confirmed — absence of
   a written-path reference in the three responses, not a filesystem check.
 
-**Findings surfaced by this trial (not blocking, filed as issues):**
+**Findings surfaced by this trial (not blocking, filed as issues — both now
+resolved, see below):**
 - [#13](https://github.com/Losera/soundfetch/issues/13) — Archive
   `download_url` values contain raw unencoded spaces (e.g. `.../For Now
   (Loz Goddard_s Rain In Space Mix).m4a`); a naive HTTP client could fail or
-  mangle the request.
+  mangle the request. **Fixed** in `991ce3b` (percent-encodes the filename
+  segment); closed 2026-08-12.
 - [#14](https://github.com/Losera/soundfetch/issues/14) — Archive-provider
   relevance for simple queries is weak: `rain` returned a house-remix track
   whose title merely contains the word "Rain," not an actual rain-sound
   recording. Protocol behavior is correct; result quality may surprise
-  first-time testers.
+  first-time testers. **Documented** (not changed) in `991ce3b` — this is IA's
+  own relevance ranking over its full audio catalog, not a soundfetch defect;
+  the docstring/README now point callers wanting effect-like results at
+  `tag`/`raw` filters instead of bare keywords. Closed 2026-08-12.
 
 Sources: [Anthropic releases Claude Desktop app beta for Linux users](https://cryptobriefing.com/anthropic-claude-desktop-linux-beta/), [Claude Desktop for Linux: Anthropic Launches the Official Beta](https://basic-tutorials.com/news/claude-desktop-for-linux-anthropic-launches-the-official-beta/)
 
@@ -142,6 +147,31 @@ to obtain favorable numbers.
 - Like-for-like live benchmark: ran within the agreed caps but all 12
   configurations failed for the documented credential/eligibility reasons; it
   is retained as failure evidence, not reported as a passing benchmark.
+
+## Remaining blockers
+
+As of 2026-08-12, with PR #15 merged to `main` (`052ce74`), what still stands
+between this candidate and a beta claim:
+
+1. **Human semantic diff review** (item 1 of `docs/RELEASE.md` §5) has not
+   happened. This is the hard blocker; nothing else in this document
+   substitutes for it.
+2. **Reproducible benchmark evidence (item 5) failed outright** — all 12
+   configurations (6 Freesound, 6 Archive) produced zero valid samples. No
+   performance claim, regression or improvement, can currently be made.
+   Remedy is recorded above: re-run with a Freesound key and an eligible
+   Archive sample, without relaxing the safety caps.
+3. **MCP host trial (item 1) is recorded but narrower than a beta claim
+   needs**: unofficial Arch/AUR packaging only (macOS, Windows, and the
+   officially supported Ubuntu/Debian builds are untested); host shutdown/
+   cleanup was not exercised; `download_manifest` has never been called
+   through Claude Desktop itself (only through soundfetch's own MCP client
+   directly — see `docs/deferred-work.md`).
+4. **No tag exists and nothing is published.** Tagging and publication require
+   explicit human authorization per `docs/RELEASE.md` §5–6, which has not been
+   given.
+
+Items 2, 3, and 4 of the original five-point checklist are satisfied.
 
 ## Release decision
 
