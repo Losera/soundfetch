@@ -133,6 +133,28 @@ class TestDownload:
         assert beta.download_calls == ["b1"]
         assert len(results) == 2
 
+    def test_results_stay_in_ref_order_across_interleaved_providers(self, tmp_path: Path):
+        """Callers zip refs against the return value to attach provider
+        identity (DownloadResult carries none), so grouping by provider
+        internally must not reorder results relative to the input refs."""
+        refs = [
+            SoundRef(provider="archive", provider_id="a1", name="rain-a1", url="x", file_format="wav"),
+            SoundRef(provider="freesound", provider_id="f1", name="rain-f1", url="x", file_format="wav"),
+            SoundRef(provider="archive", provider_id="a2", name="rain-a2", url="x", file_format="wav"),
+        ]
+        archive = FakeProvider()
+        freesound = FakeProvider()
+
+        results = download(
+            refs,
+            dest_dir=tmp_path,
+            providers={"archive": archive, "freesound": freesound},
+        )
+
+        assert [result.local_path.stem for result in results] == [
+            "rain-a1", "rain-f1", "rain-a2",
+        ]
+
     def test_empty_refs_returns_empty(self):
         assert download([], dest_dir=Path("/tmp/x")) == []
 
