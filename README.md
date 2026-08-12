@@ -1,140 +1,210 @@
 # soundfetch
 
-Batch sound/data collection from the internet. A CLI that queries sound databases,
-downloads audio (previews or lossless originals), and writes a machine-readable
-manifest of every sound it finds — built to grow into a platform with many sources.
+Soundfetch searches public sound sources, downloads audio, and records every
+result in an append-only JSONL manifest. It supports Internet Archive,
+Freesound, and an optional `yt-dlp`-backed video provider through one CLI and
+Python API.
 
-## Install
+## Status and installation
+
+Soundfetch 0.4.0 is a beta candidate under active review. It has not been
+tagged or published to a package index yet, so install it from a source
+checkout:
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
+git clone https://github.com/Losera/soundfetch.git
+cd soundfetch
+python -m venv .venv
+. .venv/bin/activate
 pip install -e .
+soundfetch --version
 ```
 
-## Configure
-
-Copy `.env.example` to `.env` and add your Freesound API key
-(apply at https://freesound.org/apiv2/apply/):
+Optional features are installed as extras:
 
 ```bash
+pip install -e ".[video]"  # yt-dlp video provider
+pip install -e ".[mcp]"    # MCP server
+pip install -e ".[export]" # WebDataset and audio export dependencies
+```
+
+Python 3.10 or newer is required.
+
+## Five-minute quick start: Internet Archive
+
+Internet Archive requires no API key. Search for a descriptive sound, review
+the resulting manifest, and then download its listed files:
+
+```bash
+soundfetch archive search "field recording rain" \
+  --license cc0 --max-results 5 -o out/
+
+# Review out/manifest.jsonl before downloading.
+soundfetch archive download --manifest out/manifest.jsonl -o out/
+```
+
+Search and download commands maintain `manifest.jsonl` in the output directory.
+Status, source-listing, authentication, and MCP commands do not write a
+manifest.
+
+Internet Archive serves original-quality files without authentication.
+Access-restricted lending or streaming-only items are excluded because they
+cannot be downloaded directly. Searches resolve file metadata for each result,
+so even a small page may take several seconds; concise
+`archive metadata: completed/total` progress is written to stderr.
+
+Internet Archive covers its complete audio catalog rather than a curated
+sound-effects library. A broad query such as `rain` may rank music with “rain”
+in its title above a field recording. Prefer descriptive queries or narrow the
+search with repeatable `--tag` and `--license` options.
+
+## Freesound configuration and original downloads
+
+Freesound search and preview downloads require an API key. Apply for one at
+<https://freesound.org/apiv2/apply/>, then either export it or place it in a
+`.env` file in the directory where Soundfetch runs:
+
+```bash
+export FREESOUND_API_KEY="your-api-key"
+
+# Or, from the repository checkout:
 cp .env.example .env
 ```
 
-`soundfetch` reads `.env` from the current directory (via `python-dotenv`) and also
-accepts real environment variables. Precedence: CLI flag > env var > `.env`.
+Soundfetch reads real environment variables and a `.env` file in its current
+directory. Explicit CLI options take precedence over environment variables,
+which take precedence over `.env` values.
 
-## Usage
+Search or download high-quality MP3 previews:
 
 ```bash
-# Search Freesound and write the manifest (no downloads)
 soundfetch freesound search "piano" --license cc0 -o out/
-
-# Download high-quality mp3 previews for a query
 soundfetch freesound download "piano" --mode preview -o out/
-
-# Two-phase workflow: search once, review the manifest, then download from it
-soundfetch freesound search "field recording rain" --license cc-by -o out/
-soundfetch freesound download --manifest out/manifest.jsonl -o out/
-
-# Check what's configured
-soundfetch freesound status
-soundfetch sources
 ```
 
-Download parallelism & rate control:
+Original WAV, FLAC, and AIFF files require Freesound OAuth2 credentials in
+addition to the API key:
 
 ```bash
-# Download 4 files in parallel (token-bucket paced per provider)
-soundfetch freesound download "piano" -o out/ --workers 4
-
-# Cap at 2 requests/sec with the token-bucket Pacing (overrides --rate-delay)
-soundfetch archive download --manifest out/manifest.jsonl -o out/ --rate 2
-```
-
-`--workers N` downloads with N threads through a bounded pool (results still
-report in input order). `--rate R` throttles the run to at most R requests/sec
-via a shared token bucket that also paces search; the legacy `--rate-delay`
-(seconds between requests) remains the default and is overridden when `--rate`
-is given.
-
-### Internet Archive
-
-No API key or auth needed — Internet Archive serves original-quality files to
-anyone. Access-restricted (lending/streaming-only) items are excluded
-automatically since they can't be downloaded directly.
-
-```bash
-soundfetch archive search "field recording rain" --license cc0 -o out/
-soundfetch archive download --manifest out/manifest.jsonl -o out/
-
-# Machine clients can download an exact reviewed result and receive a stable JSON result.
-soundfetch archive download --manifest out/manifest.jsonl \
-  --provider-id archive-item-123 --json -o out/
-# or search-then-download in one step:
-soundfetch archive download "rain storm" --license cc0 -o out/
-```
-
-`--tag` matches Internet Archive's `subject` field. `--license` uses the same
-short codes as Freesound, mapped to the closest `licenseurl` patterns IA
-items actually use. Archive searches fetch metadata for each result; concise
-`archive metadata: N/T` progress is written to stderr, including when `--json`
-keeps stdout machine-readable.
-
-Archive search covers IA's entire audio-mediatype catalog, not a curated
-sound-effects library — a bare keyword like `rain` can rank a music track
-whose *title* contains the word above an actual field recording, since that's
-a genuine relevance match, not a bug. Prefer descriptive queries (as above)
-or `--tag` to narrow results.
-
-### Original (lossless) downloads
-
-Freesound serves low-quality previews (mp3/ogg, ~64–192 kbps) to a plain API key.
-Original WAV/FLAC/AIFF files require OAuth2:
-
-```bash
-# One-time: create a Freesound app, then run the browser auth flow
+export FREESOUND_CLIENT_ID="your-client-id"
+export FREESOUND_CLIENT_SECRET="your-client-secret"
 soundfetch freesound auth
-
-# Now you can download originals
 soundfetch freesound download "piano" --mode original -o out/
 ```
 
-Tokens are cached at `$SOUNDFETCH_CONFIG_DIR/freesound.json` (default
-`~/.config/soundfetch/`, mode 0600) and auto-refresh when they expire.
+OAuth tokens are cached at `$SOUNDFETCH_CONFIG_DIR/freesound.json` (by default
+`~/.config/soundfetch/freesound.json`) with mode `0600` and are refreshed when
+they expire. Run `soundfetch freesound status` to inspect configuration.
 
-## License-aware collection
+For license-aware collection, `--license` accepts repeatable `cc0`, `cc-by`,
+`cc-by-sa`, `cc-by-nc`, or `any` values. Freesound's `--gen-ai` filter accepts
+`allow`, `deny`, `unspecified`, or `any`. License and
+`gen_ai_preference` metadata are retained in the manifest.
 
-For ML/data work, license compliance is load-bearing. `--license` accepts repeatable
-codes (`cc0`, `cc-by`, `cc-by-sa`, `cc-by-nc`, `any`). `--gen-ai` filters by
-Freesound's `gen_ai_preference` field (`allow`, `deny`, `unspecified`, `any`).
-Every sound's license and `gen_ai_preference` are recorded in the manifest.
+## Review-first manifest workflow
 
-## The manifest
+The recommended workflow separates discovery from downloading:
 
-Every command writes `<outdir>/manifest.jsonl` — one JSON object per line, append-only,
-last-wins per `(provider, provider_id)`. It serves as search output, download
-checkpoint, resume log, and dataset index. Each record includes the provider id,
-metadata (license, tags, duration, samplerate, format, ...), and download status.
+```bash
+# 1. Search without downloading.
+soundfetch freesound search "field recording rain" \
+  --license cc-by --max-results 20 -o out/
 
-`--provider-id` is repeatable and requires `--manifest`; only matching records are
-downloaded, in manifest order. With `--json`, downloads emit one object containing
-`ok`, `provider`, `manifest`, and an `items` array with each selected result's
-`provider_id`, `status`, `local_path`, byte count, checksum, and error. This is the
-supported integration contract for Incant-Audio and other native clients.
+# 2. Review or programmatically filter out/manifest.jsonl.
 
-Consume it with pandas: `pd.read_json("out/manifest.jsonl", lines=True)`.
+# 3. Download the reviewed manifest. Completed records resume by default.
+soundfetch freesound download --manifest out/manifest.jsonl -o out/
+```
+
+The manifest contains one JSON object per line and is:
+
+- append-only;
+- last-record-wins per `(provider, provider_id)`;
+- a search result, download checkpoint, resume log, and dataset index;
+- provider-independent at the record level, with provider-specific fields
+  retained under `metadata`.
+
+Each record includes its provider and provider ID, source and download URLs,
+license and descriptive metadata, download status, local file path, and
+checksum when available. It can be read directly with pandas:
+
+```python
+import pandas as pd
+
+records = pd.read_json("out/manifest.jsonl", lines=True)
+```
+
+Downloads use a bounded worker pool. Results remain in input order even when
+downloads run concurrently:
+
+```bash
+soundfetch freesound download --manifest out/manifest.jsonl \
+  --workers 4 --rate 2 -o out/
+```
+
+`--rate 2` applies a shared token-bucket limit of two requests per second and
+overrides `--rate-delay`. Run a provider command with `--help` for its complete
+filter and download options.
+
+The optional video provider accepts a video, playlist, or channel URL, or a
+search query:
+
+```bash
+pip install -e ".[video]"
+soundfetch video search "creative commons ocean waves" --max-results 5 -o out/
+soundfetch video download "https://www.youtube.com/watch?v=VIDEO_ID" -o out/
+```
+
+Video license filtering is best-effort because upstream license metadata is
+free text. Review every result before using it in a dataset.
+
+## Incant-Audio and machine-readable contracts
+
+Incant-Audio and other native clients should select reviewed records by
+provider ID and request JSON output:
+
+```bash
+soundfetch archive download --manifest out/manifest.jsonl \
+  --provider-id archive-item-123 --json -o out/
+```
+
+`--provider-id` is repeatable, requires `--manifest`, and selects records in
+manifest order. A successful download writes one JSON object to stdout with
+this shape:
+
+```json
+{
+  "ok": true,
+  "command": "download",
+  "provider": "archive",
+  "manifest": "out/manifest.jsonl",
+  "items": [
+    {
+      "provider": "archive",
+      "provider_id": "archive-item-123",
+      "status": "downloaded",
+      "local_path": "out/example.wav",
+      "bytes": 123456,
+      "checksum": "0123456789abcdef...",
+      "error": null
+    }
+  ]
+}
+```
+
+Errors use `{"ok": false, "error": {"type": "...", "message": "..."}}`
+and a nonzero process exit. Human progress is kept on stderr so JSON on stdout
+remains machine-readable. The manifest and download JSON are compatibility
+boundaries; native clients should tolerate additional object fields.
 
 ## Python API
 
-`soundfetch` is also a library — the CLI is a thin wrapper over the same
-functions. Everything provider-agnostic; pass `provider=` to pick a source
-(`freesound`, `archive`, `video`), or inject a configured provider instance
-for explicit API-key/options control.
+The CLI delegates to the provider-independent Python API:
 
 ```python
 import soundfetch
 
-# Search a source (pure: returns SoundRefs, writes nothing)
+# Search is pure: it returns SoundRef values and writes nothing.
 refs = soundfetch.search(
     "piano",
     provider="freesound",
@@ -143,27 +213,30 @@ refs = soundfetch.search(
 )
 soundfetch.save_search(refs, "out/manifest.jsonl")
 
-# Two-phase: review the manifest, then download from it (resumes by default)
-refs = soundfetch.refs_from_manifest("out/manifest.jsonl")
-results = soundfetch.download(refs, dest_dir="out/")
-
-# Mixed-provider manifests just work — download() groups refs by source
+# Reconstruct pending refs and download them, resuming by default.
+pending = soundfetch.refs_from_manifest("out/manifest.jsonl")
+results = soundfetch.download(pending, dest_dir="out/")
 ```
 
-Explicit provider instances (e.g. an API key passed directly, or a custom
-provider):
+Mixed-provider input is supported. `download()` dispatches each reference to
+its provider while preserving the original result order.
+
+Inject an explicitly configured or custom provider when environment-based
+configuration is undesirable:
 
 ```python
+from soundfetch import search
 from soundfetch.providers.freesound.provider import FreesoundProvider
 
-prov = FreesoundProvider(api_key="...")  # or let env vars resolve
-refs = soundfetch.search(
+provider = FreesoundProvider(api_key="...")
+refs = search(
     "piano",
-    providers={"freesound": prov},  # injected instance wins over provider=
+    provider="freesound",
+    providers={"freesound": provider},
 )
 ```
 
-Manifest reads for the dataset-index use case:
+Read the latest record for each sound without loading the entire manifest:
 
 ```python
 import soundfetch
@@ -172,88 +245,109 @@ for record in soundfetch.iter_latest("out/manifest.jsonl"):
     print(record["provider_id"], record["metadata"])
 ```
 
-Top-level exports: `search`, `download`, `save_search`, `refs_from_manifest`,
-`read_records`, `iter_latest`, `latest_by_sound`, `ref_record`, plus the types
-`SoundRef`, `SearchParams`, `DownloadResult`, `Provider`, `ProgressCallback`,
-and `provider_names`. Library callers can pass `provider_progress=` to
-`search()` for provider-specific `(completed, total)` updates.
+Top-level exports include `search`, `download`, `save_search`,
+`refs_from_manifest`, `read_records`, `iter_latest`, `latest_by_sound`,
+`ref_record`, `SoundRef`, `SearchParams`, `DownloadResult`, `Provider`, and
+`provider_names`. `ProgressCallback` is available from `soundfetch.api`.
+Library callers can pass `provider_progress=` to `search()` for
+provider-specific `(completed, total)` updates.
 
-## Agents & MCP
+## MCP server
 
-`soundfetch` speaks MCP. Four tools are exposed: `search_sounds`,
-`download_manifest`, `check_provider_status`, `list_sources`.
+The optional MCP server exposes four tools over stdio:
+
+- `search_sounds`
+- `download_manifest`
+- `check_provider_status`
+- `list_sources`
+
+Install the extra and locate the executable:
 
 ```bash
-pip install "soundfetch[mcp]"
-soundfetch mcp   # MCP server over stdio
+pip install -e ".[mcp]"
+command -v soundfetch
 ```
 
-Register it in Claude Desktop `claude_desktop_config.json`:
+Register the absolute executable path in Claude Desktop and set an explicit
+workspace root:
 
 ```json
 {
   "mcpServers": {
-    "soundfetch": { "command": "soundfetch", "args": ["mcp"] }
+    "soundfetch": {
+      "command": "/absolute/path/to/venv/bin/soundfetch",
+      "args": ["mcp"],
+      "env": {
+        "SOUNDFETCH_MCP_ROOT": "/absolute/path/to/sound-workspace"
+      }
+    }
   }
 }
 ```
 
+Model-supplied manifest and destination paths are confined to
+`SOUNDFETCH_MCP_ROOT`. If it is unset, the server uses its process working
+directory. Use a dedicated workspace and pass paths relative to that root.
+Provider titles, descriptions, and tags are remote, untrusted content; MCP
+responses bound their length but do not make them trustworthy.
+
 ## Data exports
 
-Turn a completed manifest into WebDataset shards or a compliance-ready
-attribution file:
+Install the export dependencies:
+
+```bash
+pip install -e ".[export]"
+```
+
+Create WebDataset shards or a compliance-oriented attribution file from a
+completed manifest:
 
 ```python
-pip install "soundfetch[export]"
-from soundfetch.export import to_webdataset, export_attribution
+from soundfetch.export import export_attribution, to_webdataset
 
-to_webdataset("out/manifest.jsonl", out_dir="out/shard.tar")  # tar shards
-export_attribution("out/manifest.jsonl", dest_dir="out/")     # ATTRIBUTION.md
+shards = to_webdataset(
+    "out/manifest.jsonl",
+    dest_dir="out/",
+    out_dir="out/shards/",
+)
+attribution = export_attribution(
+    "out/manifest.jsonl",
+    dest_dir="out/",
+)
 ```
 
-Heavy dependencies (`webdataset`, `soundfile`) are imported lazily inside
-`to_webdataset`, so `import soundfetch.export` is cheap. A HuggingFace
-`datasets` exporter was attempted and deliberately left out — see
-[`docs/deferred-work.md`](docs/deferred-work.md).
+`to_webdataset()` imports WebDataset lazily and writes numbered `.tar.gz`
+shards by default. The export extra also includes SoundFile for real-audio
+integration validation. A Hugging Face `datasets` exporter was deliberately
+deferred; see [`docs/deferred-work.md`](docs/deferred-work.md).
 
-## Live benchmarks
+## Development and release status
 
-The benchmark scripts run small real-network collections against Freesound and
-Internet Archive; add `--video` to include the video provider when `yt-dlp` is
-installed. Freesound requires `FREESOUND_API_KEY`.
+Create a worktree-local environment and run the offline suite:
 
 ```bash
-# Black-box CLI benchmark and ASCII timing table
-python scripts/benchmark_cli.py --limit 3 --query rain
-
-# In-process API benchmark, CSV/JSON metrics, and four matplotlib charts
-pip install -e ".[bench]"
-python scripts/benchmark_api.py --limit 3 --query rain
+scripts/bootstrap-worktree.sh
+.venv/bin/python -m pytest -m "not live"
 ```
 
-Each run uses a fresh timestamped directory under `benchmarks/`. The API script
-accepts repeated `--trials`, comma-separated `--workers`, and hard
-`--max-file-mb` / `--max-total-mb` safety caps. It writes raw metrics,
-summaries, environment and Git metadata, a failure list, and comparison charts.
-Named `benchmarks/review-*` snapshots may retain those evidence files; downloaded
-audio and manifests remain ignored. Both scripts exit nonzero if a source fails.
-
-## Development
+Live provider tests are deliberate and may require credentials or optional
+tools:
 
 ```bash
-pip install -e ".[dev]"
-pytest -m "not live"          # offline suite (no API key needed)
-pytest -m live                # live smoke test (requires FREESOUND_API_KEY)
+.venv/bin/python -m pytest -m live
 ```
 
-Release preparation, wheel-only smoke checks, publishing gates, and recovery
-steps are documented in [`docs/RELEASE.md`](docs/RELEASE.md).
+Small real-network benchmarks are available for Freesound and Internet
+Archive. They use fresh timestamped output directories and support hard file
+and total-size caps:
 
-## Roadmap
+```bash
+.venv/bin/python scripts/benchmark_cli.py --limit 3 --query rain
+.venv/bin/python scripts/benchmark_api.py \
+  --limit 3 --query rain --max-file-mb 1 --max-total-mb 10
+```
 
-- **Phase 1** (done): working Freesound CLI — search, preview downloads, manifest.
-- **Phase 2** (done): OAuth2 originals, full pagination, license/gen-ai filters, resume.
-- **Phase 3** (in progress): provider platform — Internet Archive and the
-  optional `yt-dlp`-backed video provider are available, with one shared
-  manifest schema across providers.
-- **Later**: web UI over the manifest.
+Release preparation, wheel-only smoke tests, publishing gates, and recovery
+steps are documented in [`docs/RELEASE.md`](docs/RELEASE.md). The current beta
+evidence and remaining human gates are recorded in
+[`docs/beta-readiness-0.4.0.md`](docs/beta-readiness-0.4.0.md).
