@@ -17,7 +17,16 @@ review and the checks in `docs/RELEASE.md`.
   manifest downloads.
 - Optional WebDataset and attribution exports with real-dependency CI coverage.
 - Repeatable `--provider-id` selection and stable JSON results for native
-  consumers such as Incant-Audio.
+  consumers. Incant Audio compatibility has not yet been verified end to end.
+
+## Supported beta scope
+
+- Release-tested: Linux with Python 3.10 through 3.13, using the CLI and public
+  Python API.
+- Experimental: MCP desktop hosts, Python 3.14 and newer, macOS, Windows, and
+  downstream Incant Audio integration.
+- Not included: a hosted service, container image, availability guarantee, or
+  provider service-level guarantee.
 
 ## Known limitations
 
@@ -25,8 +34,9 @@ review and the checks in `docs/RELEASE.md`.
   OAuth2.
 - Internet Archive search resolves file metadata per item and can take tens of
   seconds even for a small result page. Progress is emitted on stderr.
-- Claude Desktop registration is documented, but the 0.4.0 release gate
-  requires a recorded manual host trial in `docs/beta-readiness-0.4.0.md`.
+- Claude Desktop registration is documented, but desktop-host operation is
+  experimental. The recorded trial did not exercise host-driven downloads or
+  shutdown/cleanup.
 - The framework-specific adapters and broken Hugging Face dataset exporter are
   deliberately deferred; see `docs/deferred-work.md`.
 - Live benchmark results are network- and catalog-dependent and are not service

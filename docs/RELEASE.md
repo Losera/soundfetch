@@ -87,6 +87,12 @@ the repository's protected-branch policy. Publish the already-validated files
 from `dist/`; do not rebuild between approval and upload. Use the configured
 trusted publisher or an explicitly authorized Twine credential flow.
 
+For the first public beta, the selected publication path is a manual upload of
+the exact approved artifacts using a project-scoped PyPI token. Do not use a
+user-wide token, place the token in repository files, or echo it into logs.
+Trusted publishing may replace this manual path in a later, separately reviewed
+release-process change.
+
 After publication, verify the project page, version, rendered metadata, and both
 distribution files on the package index. Install the published version into a
 new empty environment, repeat the version/help/sources/import smoke checks, and
