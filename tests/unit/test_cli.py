@@ -7,6 +7,8 @@ so command callbacks resolve the patched spec at call time (not import time).
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -26,6 +28,23 @@ def test_sources_lists_registered_providers():
     assert result.exit_code == 0
     assert "archive" in result.output
     assert "freesound" in result.output
+
+
+def test_package_module_entry_point_runs_cli(tmp_path: Path):
+    """The installed package must support PluginForge's exact invocation form."""
+    result = subprocess.run(
+        [sys.executable, "-m", "soundfetch", "sources", "--json"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert {row["name"] for row in payload["sources"]} >= {"archive", "freesound"}
 
 
 # ---------------------------------------------------------------------------
