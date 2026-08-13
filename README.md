@@ -28,7 +28,9 @@ pip install -e ".[mcp]"    # MCP server
 pip install -e ".[export]" # WebDataset and audio export dependencies
 ```
 
-Python 3.10 or newer is required.
+The 0.4.0 beta support target is Linux with Python 3.10 through 3.13, the
+versions exercised by CI. The package declares Python 3.10 or newer, but
+Python 3.14, macOS, and Windows are not release-tested for this beta.
 
 ## Five-minute quick start: Internet Archive
 
@@ -158,10 +160,11 @@ soundfetch video download "https://www.youtube.com/watch?v=VIDEO_ID" -o out/
 Video license filtering is best-effort because upstream license metadata is
 free text. Review every result before using it in a dataset.
 
-## Incant-Audio and machine-readable contracts
+## Native-client machine-readable contracts
 
-Incant-Audio and other native clients should select reviewed records by
-provider ID and request JSON output:
+Native clients can select reviewed records by provider ID and request JSON
+output. The intended Incant Audio integration has not yet been verified end to
+end:
 
 ```bash
 soundfetch archive download --manifest out/manifest.jsonl \
@@ -291,6 +294,12 @@ directory. Use a dedicated workspace and pass paths relative to that root.
 Provider titles, descriptions, and tags are remote, untrusted content; MCP
 responses bound their length but do not make them trustworthy.
 
+The MCP protocol surface has automated subprocess coverage. Desktop-host use
+is experimental in 0.4.0: one read-only Claude Desktop trial succeeded on an
+unofficial Arch Linux package, but host-driven downloads, shutdown/cleanup,
+macOS, Windows, and officially packaged Ubuntu/Debian hosts are not part of
+the supported beta claim.
+
 ## Data exports
 
 Install the export dependencies:
@@ -375,4 +384,6 @@ and total-size caps:
 Release preparation, wheel-only smoke tests, publishing gates, and recovery
 steps are documented in [`docs/RELEASE.md`](docs/RELEASE.md). The current beta
 evidence and remaining human gates are recorded in
-[`docs/beta-readiness-0.4.0.md`](docs/beta-readiness-0.4.0.md).
+[`docs/beta-readiness-0.4.0.md`](docs/beta-readiness-0.4.0.md). Longer-term
+product hypotheses and sequencing are maintained in the
+[`product and workflow roadmap`](docs/product-workflow-roadmap.md).

@@ -4,6 +4,18 @@ This document tracks the five concrete readiness actions from the August 2026
 public-beta review. A checked automated item means the named evidence was
 actually produced; it does not authorize tagging or publication.
 
+## Supported beta claim
+
+The proposed 0.4.0 support claim is the CLI and public Python API on Linux with
+Python 3.10 through 3.13. Those versions are exercised in GitHub Actions.
+Python 3.14 and newer, macOS, Windows, desktop MCP hosts, Incant Audio
+integration, containers, and hosted services are experimental or deferred and
+are not implied by the beta label.
+
+MCP unit and subprocess protocol coverage remains a release gate because MCP
+ships as an optional package extra. Real desktop-host downloads and
+shutdown/cleanup are post-beta validation for the experimental host surface.
+
 ## 1. MCP host readiness
 
 - [x] Unit and subprocess protocol coverage exists in CI.
@@ -78,10 +90,9 @@ as compatible.
 
 ## 2. Deterministic verification
 
-The candidate passed the full offline suite with the real MCP, export, and
-benchmark extras installed. Exact local commands and results are recorded in
-the verification section; GitHub Actions on merged `main` remains supporting
-historical evidence only.
+Earlier candidates passed the full offline suite with the real MCP, export,
+and benchmark extras installed. Exact commands and results are retained below
+as historical evidence. They do not validate a later final candidate.
 
 ## 3. Release candidate validation
 
@@ -91,7 +102,7 @@ pass Twine validation, and a fresh wheel-only environment must pass version,
 help, sources JSON, and base-import smoke checks. Tagging and publication remain
 outside this change and require explicit human authorization.
 
-All automated candidate checks above passed. The wheel SHA-256 is
+The earlier candidate's automated checks passed. Its wheel SHA-256 is
 `7960914a429d41dcdafa6773141444a57b83e0990fec33fe9d8d8816a0e4534f`;
 the source archive SHA-256 is
 `1f3bc5ba9ea1b630a811b6a75c24ba42be066b470a2015066f85843496233726`.
@@ -130,7 +141,11 @@ sample, so these deltas are within measurement noise — **no regression or
 improvement claim is made**. This closes the evidence gap (a valid sample now
 exists); it does not certify performance parity.
 
-## Verification record
+## Historical verification record
+
+The following results were recorded for earlier candidate commits and must be
+repeated against the final approved commit. Their artifacts must not be
+published as the final 0.4.0 release.
 
 - `.venv/bin/python -m pytest tests/unit/test_benchmark_api.py -q`:
   9 passed.
@@ -149,52 +164,77 @@ exists); it does not certify performance parity.
 - Bounded installed-wheel Archive search (`rain`, maximum/page size 1): passed
   with structured JSON containing one result and metadata progress on stderr.
 - `git diff --check`: passed.
-- Like-for-like live benchmark: ran within the agreed caps but all 12
-  configurations failed for the documented credential/eligibility reasons; it
-  is retained as failure evidence, not reported as a passing benchmark.
+- Like-for-like live benchmark: the first attempt failed for documented
+  credential/eligibility reasons; the bounded rerun recorded above produced
+  12/12 valid samples.
+
+## Current-candidate audit
+
+On 2026-08-12, GitHub CI passed the Python 3.10–3.13 test matrix plus package,
+MCP, and export jobs for commit `20ed875`. A local audit under Python 3.14
+reported 256 passed, 4 live tests deselected, and one MCP stdio initialization
+timeout. Python 3.14 is outside the proposed support matrix; this result is
+retained as an experimental-runtime compatibility finding, not counted as a
+passing supported-platform verification.
+
+The final release branch includes documentation changes after `20ed875`, so a
+new candidate SHA, supported-version test result, artifact hashes, wheel-only
+smokes, and bounded live Archive result are still required.
+
+Pre-review verification on the uncommitted `release/0.4.0-readiness` working
+tree produced the following feasibility evidence. These are not final release
+artifacts and must not be uploaded:
+
+- Python 3.13.14 offline suite with MCP and export extras: 257 passed, 4 live
+  tests deselected.
+- Wheel and sdist build plus Twine validation: passed.
+- Wheel-only version, help, sources JSON, and import-isolation smokes: passed.
+- Wheel-only export and MCP protocol tests outside the known subprocess
+  restriction: 13 passed. The restricted run passed all 12 export tests and
+  timed out during MCP initialization.
+- Pre-review artifact SHA-256 values: wheel
+  `2b20790ca906eb34cf6e51b31e7f89e514653823da8c5690aa6f1b557f05f78a`;
+  sdist `0c925161bd5d423228204a407e6156882f29b501d169c0e138d04147ba239675`.
 
 ## Remaining blockers
 
-As of 2026-08-12, with PR #15 merged to `main` (`052ce74`), what still stands
-between this candidate and a beta claim:
+As of 2026-08-12, what still stands between this candidate and the scoped beta
+claim:
 
 1. **Human semantic diff review** (item 1 of `docs/RELEASE.md` §5) has not
    happened. This is the hard blocker; nothing else in this document
    substitutes for it. During that review a real correctness bug was found and
-   fixed in PR #17 (not yet merged as of this writing): `api.download()`
+   fixed in merged PR #17: `api.download()`
    silently reordered results relative to the input refs whenever a manifest
    interleaved more than one provider, which corrupted the new
    `download --json` contract's per-item `provider_id`/`status`/`checksum`
    attribution — the exact feature the release notes market as stable for
    external consumers. This is itself evidence for why the review step exists
    and cannot be skipped or assumed satisfied by test counts alone.
-2. **MCP host trial (item 1 of the checklist) is recorded but narrower than a
-   beta claim needs**: unofficial Arch/AUR packaging only (macOS, Windows, and
-   the officially supported Ubuntu/Debian builds are untested); host shutdown/
-   cleanup was not exercised in the original recorded trial; `download_manifest`
-   has never been called through Claude Desktop itself (only through
-   soundfetch's own MCP client directly — see `docs/deferred-work.md`). A
-   follow-up trial exercising both gaps against the current (post-fix) wheel
-   is in progress as of this writing.
+2. **Final-candidate verification is incomplete.** The supported-version
+   offline suite, distribution build, Twine validation, wheel-only base/MCP/
+   export smokes, bounded Archive search/download, and `git diff --check` must
+   all run against the same final commit. Record exact artifact hashes and do
+   not rebuild after approval.
 3. **No tag exists and nothing is published.** Tagging and publication require
    explicit human authorization per `docs/RELEASE.md` §5–6, which has not been
    given.
 
-Items 2 (deterministic verification), 3 (release candidate validation), 4
-(Archive usability), and 5 (reproducible benchmark evidence, updated above) of
-the original five-point checklist are now satisfied. Item 1 (MCP host
-readiness) remains the only checklist item with open gaps, per point 2 above.
+The narrower beta support claim means the incomplete Claude Desktop download
+and shutdown trial no longer blocks 0.4.0. It remains required before desktop
+hosts can be described as supported. Incant Audio compatibility likewise
+remains unverified until its real selected-manifest handoff passes end to end.
 
 ## Release decision
 
-**Not release-ready yet.** Human semantic diff review remains mandatory — and,
-per the note in "Remaining blockers" above, that review already earned its
+**Not release-ready yet.** Human semantic diff review and final-candidate
+verification remain mandatory. Per the note in "Remaining blockers" above,
+that review already earned its
 keep by catching a real silent-corruption bug (PR #17) in the candidate's
 headline JSON contract feature, which a passing test suite alone did not
-surface. The manual Claude Desktop trial is now recorded, but scoped to one
-unofficial Linux packaging (Arch/AUR) with shutdown and `download_manifest`
-gaps still open — if the 0.4.0 beta claim is meant to cover macOS/Windows/
-official-Linux users, or a Docker-packaged distribution, those remain untested
-and are separate open items, not implied by this record. The benchmark
-evidence gap is closed as of 2026-08-12. Any failed deterministic/package check
-adds a new gate; no tag or publication is authorized by this document.
+surface. The manual Claude Desktop trial is useful experimental evidence, but
+its shutdown and `download_manifest` gaps remain open and it does not extend
+the Linux CLI/API support claim to desktop hosts, macOS, Windows, containers,
+or hosted services. The benchmark evidence gap is closed as of 2026-08-12.
+Any failed final deterministic/package check adds a new gate; no tag or
+publication is authorized by this document.
