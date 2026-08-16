@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from soundfetch.core.manifest import append_record, iter_latest
-from soundfetch.export import _select_downloaded, export_attribution
+from soundfetch.export import _sample_key, _select_downloaded, export_attribution
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +194,38 @@ class TestExportAttribution:
 
 
 class TestToWebdataset:
+    @pytest.mark.parametrize("shard_size", [0, -1, True, 1.5])
+    def test_rejects_non_positive_or_non_integer_shard_size(
+        self, tmp_path: Path, shard_size
+    ):
+        from soundfetch.export import to_webdataset
+
+        with pytest.raises(ValueError, match="shard_size must be greater than zero"):
+            to_webdataset(
+                tmp_path / "missing.jsonl",
+                out_dir=tmp_path / "shards",
+                shard_size=shard_size,
+            )
+
+        assert not (tmp_path / "shards").exists()
+
+    def test_sample_keys_distinguish_ids_that_sanitize_identically(self):
+        first = _sample_key("archive", "a/b")
+        second = _sample_key("archive", "a?b")
+
+        assert first != second
+        assert first.startswith("archive_a_b_")
+        assert second.startswith("archive_a_b_")
+
+    def test_sample_keys_distinguish_ids_after_sanitized_cutoff(self):
+        common = "a" * 120
+        first = _sample_key("archive", common + "-first")
+        second = _sample_key("archive", common + "-second")
+
+        assert first != second
+        assert first.startswith(f"archive_{common}_")
+        assert second.startswith(f"archive_{common}_")
+
     def test_writes_readable_shard(self, tmp_path: Path):
         pytest.importorskip("webdataset")
         soundfile = pytest.importorskip("soundfile")
@@ -221,7 +253,7 @@ class TestToWebdataset:
         samples = list(wds.WebDataset(str(shards[0]), shardshuffle=False).decode())
         assert len(samples) == 1
         sample = samples[0]
-        assert sample["__key__"] == "test_1"
+        assert sample["__key__"] == _sample_key("test", "1")
         assert "wav" in sample
         meta = sample["json"]
         assert meta["sound_id"] == "1"

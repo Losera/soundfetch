@@ -45,7 +45,8 @@ def stream_to_file(
     """Stream `url` into `dest`, resuming from an existing `.part` file.
 
     Writes to `dest.with_suffix(dest.suffix + ".part")`, verifies the optional
-    md5 `checksum`, then atomically renames to `dest`. Returns bytes written.
+    md5 `checksum`, then atomically renames to `dest`. Returns the completed
+    destination file size, including bytes retained from a resumed partial.
 
     `reporthook(downloaded, total)` is called after each chunk (total may be
     -1 if the server omits Content-Length).
@@ -109,7 +110,7 @@ def stream_to_file(
                 )
 
             os.replace(part, dest)  # atomic rename
-            return written
+            return dest.stat().st_size
 
         except RateLimitError as exc:
             last_exc = exc
