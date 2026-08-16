@@ -17,8 +17,9 @@ from click.testing import CliRunner
 
 import soundfetch.cli as cli_module
 from soundfetch.cli import main, SPECS
-from soundfetch.core.manifest import append_record
-from soundfetch.core.model import SearchPage
+from soundfetch.core.downloader import stream_to_file
+from soundfetch.core.manifest import append_record, iter_latest
+from soundfetch.core.model import DownloadResult, SearchPage
 
 from ..fakes import FakeProvider, make_ref
 
@@ -214,6 +215,55 @@ class TestArchiveCli:
         assert [item["provider_id"] for item in payload["items"]] == ["2"]
         assert payload["items"][0]["local_path"].endswith("rain-2.wav")
         assert fake.download_calls == ["2"]
+
+    def test_json_resumed_download_reports_completed_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, requests_mock
+    ):
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+        manifest = outdir / "manifest.jsonl"
+        append_record(
+            manifest,
+            {
+                "provider": "archive",
+                "provider_id": "1",
+                "name": "rain",
+                "download_url": "https://example.test/rain.wav",
+                "file_format": "wav",
+                "status": "listed",
+            },
+        )
+        part = outdir / "rain.wav.part"
+        part.write_bytes(b"HELLO")
+
+        def remaining_bytes(request, context):
+            assert request.headers["Range"] == "bytes=5-"
+            context.status_code = 206
+            return b" WORLD"
+
+        requests_mock.get("https://example.test/rain.wav", content=remaining_bytes)
+
+        def download_fn(ref, _dest_dir, target):
+            completed_size = stream_to_file(ref.download_url, target)
+            return DownloadResult(target, bytes=completed_size, status="downloaded")
+
+        fake = FakeProvider(download_fn=download_fn)
+        self._patch_spec(monkeypatch, fake)
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "archive", "download", "--manifest", str(manifest),
+                "--json", "-o", str(outdir),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["items"][0]["bytes"] == len(b"HELLO WORLD")
+        assert (outdir / "rain.wav").read_bytes() == b"HELLO WORLD"
+        latest = list(iter_latest(manifest))
+        assert latest[0]["bytes"] == len(b"HELLO WORLD")
 
     def test_json_download_accepts_repeated_provider_ids_in_manifest_order(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

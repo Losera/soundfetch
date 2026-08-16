@@ -38,6 +38,7 @@ Examples
 from __future__ import annotations
 
 import datetime
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -107,6 +108,15 @@ def _select_downloaded(
     return results
 
 
+def _sample_key(provider: str, provider_id: str) -> str:
+    """Build a readable, collision-resistant WebDataset sample key."""
+    safe_provider = sanitize_stem(provider, "unknown")
+    safe_provider_id = sanitize_stem(provider_id, "0")
+    identity = f"{provider}\0{provider_id}".encode("utf-8")
+    digest = hashlib.sha256(identity).hexdigest()[:16]
+    return f"{safe_provider}_{safe_provider_id}_{digest}"
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -141,8 +151,16 @@ def to_webdataset(
         A list of ``Path`` objects pointing to the created shard files.
 
     Raises:
-        ValueError: If no downloaded records are found in the manifest.
+        ValueError: If ``shard_size`` is not a positive integer or no
+            downloaded records are found in the manifest.
     """
+    if (
+        isinstance(shard_size, bool)
+        or not isinstance(shard_size, int)
+        or shard_size <= 0
+    ):
+        raise ValueError("shard_size must be greater than zero")
+
     records = _select_downloaded(manifest, dest_dir)
     if not records:
         raise ValueError("no downloaded sounds in manifest")
@@ -175,8 +193,9 @@ def to_webdataset(
         # data (e.g. an Internet Archive identifier is uploader-chosen) and
         # becomes a tar member name, so it goes through the same allowlist
         # as a local filename rather than being trusted verbatim.
-        provider_id = sanitize_stem(str(rec.get("provider_id", "0")), "0")
-        key = f"{rec.get('provider', 'unknown')}_{provider_id}"
+        provider = str(rec.get("provider", "unknown"))
+        provider_id = str(rec.get("provider_id", "0"))
+        key = _sample_key(provider, provider_id)
 
         # Preserve the real audio extension (mp3/ogg/wav/flac/...) so shards
         # decode correctly — never hardcode one format.

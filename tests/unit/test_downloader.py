@@ -37,7 +37,7 @@ class TestStreamToFile:
 
         written = stream_to_file("https://example.test/file", dest, session=session)
 
-        assert written == len(remaining)
+        assert written == len(b"HELLO WORLD")
         assert dest.read_bytes() == b"HELLO WORLD"
         assert not part.exists()
 
@@ -64,7 +64,7 @@ class TestStreamToFile:
             checksum=checksum,
         )
 
-        assert written == len(remaining)
+        assert written == len(b"HELLO WORLD")
         assert dest.read_bytes() == b"HELLO WORLD"
         assert not part.exists()
 
