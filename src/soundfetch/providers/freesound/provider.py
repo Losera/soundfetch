@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -161,14 +162,57 @@ class FreesoundProvider:
         preview_url = previews.get(
             PREVIEW_KEYS.get((self.preview_quality, self.preview_format), "preview-hq-mp3")
         )
+        if self.mode == "preview":
+            file_format = self.preview_format
+            checksum = None
+            download_url = preview_url
+            variant = f"preview:{self.preview_quality}:{self.preview_format}"
+        else:
+            file_format = metadata.get("type")
+            checksum = metadata.get("md5")
+            download_url = None
+            variant = "original"
+        metadata["download_variant"] = variant
         return SoundRef(
             provider=self.name,
             provider_id=str(item.get("id")),
             name=item.get("name", ""),
             url=item.get("url", ""),
-            download_url=preview_url,
-            file_format=metadata.get("type") or self.preview_format,
-            checksum=metadata.get("md5"),
+            download_url=download_url,
+            file_format=file_format or self.preview_format,
+            checksum=checksum,
+            metadata=metadata,
+        )
+
+    def prepare_download(self, ref: SoundRef) -> SoundRef:
+        """Describe the exact preview/original asset requested by this instance."""
+        metadata = dict(ref.metadata)
+        original_format = metadata.get("type")
+        name = _without_matching_suffix(ref.name, original_format)
+        if self.mode == "preview":
+            previews = metadata.get("previews") or {}
+            key = PREVIEW_KEYS.get(
+                (self.preview_quality, self.preview_format), "preview-hq-mp3"
+            )
+            metadata["download_variant"] = (
+                f"preview:{self.preview_quality}:{self.preview_format}"
+            )
+            return replace(
+                ref,
+                name=name,
+                download_url=previews.get(key) or ref.download_url,
+                file_format=self.preview_format,
+                checksum=None,
+                metadata=metadata,
+            )
+
+        metadata["download_variant"] = "original"
+        return replace(
+            ref,
+            name=name,
+            download_url=None,
+            file_format=original_format or "wav",
+            checksum=metadata.get("md5") or ref.checksum,
             metadata=metadata,
         )
 
@@ -250,3 +294,10 @@ class FreesoundProvider:
             "oauth_token": token is not None and not token_expired,
             "oauth_token_expired": token is not None and token_expired,
         }
+
+
+def _without_matching_suffix(name: str, file_format: str | None) -> str:
+    suffix = f".{file_format}" if file_format else ""
+    if suffix and name.lower().endswith(suffix.lower()):
+        return name[: -len(suffix)]
+    return name

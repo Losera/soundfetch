@@ -103,6 +103,11 @@ For license-aware collection, `--license` accepts repeatable `cc0`, `cc-by`,
 `allow`, `deny`, `unspecified`, or `any`. License and
 `gen_ai_preference` metadata are retained in the manifest.
 
+Freesound manifests also retain the effective download variant (for example,
+`preview:hq:mp3` or `original`) under `metadata.download_variant`. Preview and
+original assets have independent resume checkpoints, formats, and checksums,
+so downloading one does not cause the other to be skipped.
+
 ## Review-first manifest workflow
 
 The recommended workflow separates discovery from downloading:

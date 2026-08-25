@@ -23,6 +23,8 @@ from .provider import ProgressCallback, Provider
 
 log = logging.getLogger(__name__)
 
+ResumeKey = tuple[str, str, str | None]
+
 
 def _attach_limiter(provider: Provider, pacing, rate_delay: float):
     """Attach (once) a shared rate-limiter to a provider and return it.
@@ -141,7 +143,7 @@ def download_refs(
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    done: dict[tuple[str, str], str] = {}
+    done: dict[ResumeKey, str] = {}
     if resume:
         done = _resume_done(manifest)
 
@@ -182,7 +184,7 @@ def _attempt_download(
     dest_dir: Path,
     manifest: Path,
     *,
-    done: dict[tuple[str, str], str],
+    done: dict[ResumeKey, str],
     taken: set[str],
     overwrite: bool,
     lock=None,
@@ -196,7 +198,8 @@ def _attempt_download(
     the loop continues. ``lock`` (a threading.Lock) guards the shared ``taken``
     set and manifest appends when the caller runs concurrently.
     """
-    key = (ref.provider, ref.provider_id)
+    ref = _prepare_download_ref(provider, ref)
+    key = (ref.provider, ref.provider_id, _download_variant(ref))
     if not overwrite and key in done and (dest_dir / done[key]).exists():
         log.info("skip %s/%s (already downloaded)", ref.provider, ref.provider_id)
         return DownloadResult(dest_dir / done[key], status="skipped")
@@ -269,7 +272,7 @@ def _download_threaded(
     dest_dir: Path,
     manifest: Path,
     *,
-    done: dict[tuple[str, str], str],
+    done: dict[ResumeKey, str],
     overwrite: bool,
     fail_fast: bool,
     workers: int,
@@ -318,16 +321,20 @@ def _download_threaded(
     return results  # type: ignore[return-value]
 
 
-def _resume_done(manifest: Path) -> dict[tuple[str, str], str]:
-    """Last-wins pass over the manifest for resume: ``(provider, provider_id)
-    -> local_file`` for every sound whose most recent record is a completed
-    download.
+def _resume_done(manifest: Path) -> dict[ResumeKey, str]:
+    """Last-wins pass per download variant for resume.
+
+    The key is ``(provider, provider_id, download_variant)``. Providers that
+    do not declare a variant retain the legacy ``None`` key, so their resume
+    behavior is unchanged. Multiple assets for one remote sound (for example
+    a Freesound preview and original) can therefore coexist without one being
+    mistaken for the other.
 
     Streams the file and keeps only the tiny per-sound ``(status, local_file)``
     tuple instead of materializing every record as an object, so a huge
     manifest doesn't blow up memory just to resume.
     """
-    pending: dict[tuple[str, str], tuple[str, str]] = {}
+    pending: dict[ResumeKey, tuple[str, str]] = {}
     if not manifest.exists():
         return {}
     try:
@@ -343,9 +350,30 @@ def _resume_done(manifest: Path) -> dict[tuple[str, str], str]:
                 rec = json.loads(line)
             except ValueError:
                 continue  # tolerate a corrupt trailing line
-            key = (rec.get("provider", ""), str(rec.get("provider_id", "")))
+            metadata = rec.get("metadata")
+            variant = metadata.get("download_variant") if isinstance(metadata, dict) else None
+            key = (
+                rec.get("provider", ""),
+                str(rec.get("provider_id", "")),
+                str(variant) if variant is not None else None,
+            )
             pending[key] = (rec.get("status", ""), rec.get("local_file") or "")
     return {key: lf for key, (status, lf) in pending.items() if status == "downloaded" and lf}
+
+
+def _prepare_download_ref(provider: Provider, ref: SoundRef) -> SoundRef:
+    """Let a provider normalize mode-specific download metadata.
+
+    This hook is optional to preserve the existing two-method provider
+    contract for third-party/custom providers.
+    """
+    prepare = getattr(provider, "prepare_download", None)
+    return prepare(ref) if prepare is not None else ref
+
+
+def _download_variant(ref: SoundRef) -> str | None:
+    variant = ref.metadata.get("download_variant")
+    return str(variant) if variant is not None else None
 
 
 def _safe_stem(ref: SoundRef) -> str:

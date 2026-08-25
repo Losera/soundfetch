@@ -183,8 +183,9 @@ class TestSearch:
         assert ref.provider_id == "123"
         assert ref.name == "Rain on roof.wav"
         assert ref.download_url == "https://cdn.test/123-hq.mp3"  # default hq/mp3
-        assert ref.file_format == "wav"  # metadata "type" wins over preview_format
-        assert ref.checksum == "abc123"
+        assert ref.file_format == "mp3"
+        assert ref.checksum is None  # the API checksum describes the original, not the preview
+        assert ref.metadata["download_variant"] == "preview:hq:mp3"
         assert ref.metadata["license"] == "Creative Commons 0"
 
     def test_ref_conversion_respects_quality_and_format(self, requests_mock):
@@ -192,6 +193,34 @@ class TestSearch:
         requests_mock.get(f"{BASE_URL}/search/", json=_search_payload())
         page = provider.search(SearchParams(query="piano", extra={"page": 1}))
         assert page.results[0].download_url == "https://cdn.test/123-lq.ogg"
+        assert page.results[0].file_format == "ogg"
+        assert page.results[0].metadata["download_variant"] == "preview:lq:ogg"
+
+    def test_original_search_ref_uses_original_format_and_checksum(self, requests_mock):
+        provider = FreesoundProvider(api_key="test-key", mode="original")
+        requests_mock.get(f"{BASE_URL}/search/", json=_search_payload())
+
+        ref = provider.search(SearchParams(query="piano", extra={"page": 1})).results[0]
+
+        assert ref.download_url is None
+        assert ref.file_format == "wav"
+        assert ref.checksum == "abc123"
+        assert ref.metadata["download_variant"] == "original"
+
+    def test_prepare_download_switches_a_preview_manifest_to_original(self, requests_mock):
+        preview = FreesoundProvider(api_key="test-key", mode="preview")
+        requests_mock.get(f"{BASE_URL}/search/", json=_search_payload())
+        listed_ref = preview.search(SearchParams(query="piano", extra={"page": 1})).results[0]
+
+        prepared = FreesoundProvider(api_key="test-key", mode="original").prepare_download(
+            listed_ref
+        )
+
+        assert prepared.name == "Rain on roof"
+        assert prepared.download_url is None
+        assert prepared.file_format == "wav"
+        assert prepared.checksum == "abc123"
+        assert prepared.metadata["download_variant"] == "original"
 
 
 # ---------------------------------------------------------------------------

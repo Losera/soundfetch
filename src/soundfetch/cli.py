@@ -491,7 +491,10 @@ def _run_download(name: str, ctx: click.Context | None, **opts: Any) -> None:
             if not json_mode:
                 click.echo(f"found {len(refs)} sounds")
         elif manifest_arg:
-            refs = api.refs_from_manifest(manifest)
+            # Let the engine/provider decide whether the requested download
+            # variant is already complete.  Prefiltering here cannot
+            # distinguish, for example, a Freesound preview from an original.
+            refs = api.refs_from_manifest(manifest, skip_downloaded=False)
             if selected_ids:
                 wanted = set(selected_ids)
                 refs = [ref for ref in refs if ref.provider_id in wanted]
@@ -678,7 +681,7 @@ def _load_dotenv() -> None:
     try:
         from dotenv import load_dotenv
 
-        load_dotenv()
+        load_dotenv(dotenv_path=Path.cwd() / ".env")
     except ImportError:
         pass
 
