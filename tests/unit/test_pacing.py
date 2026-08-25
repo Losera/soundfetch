@@ -99,6 +99,7 @@ class TestPacing:
         pacing = Pacing()
         assert pacing.limiter("freesound").rate == pytest.approx(0.9)
         assert pacing.limiter("archive").rate == pytest.approx(4.0)
+        assert pacing.limiter("openverse").rate == pytest.approx(0.25)
 
     def test_set_rate_updates_existing_limiter(self):
         pacing = Pacing()

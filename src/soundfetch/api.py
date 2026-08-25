@@ -90,6 +90,10 @@ def search(
     license: str | tuple[str, ...] | None = None,
     duration: str | None = None,
     tag: str | tuple[str, ...] | None = None,
+    category: str | tuple[str, ...] | None = None,
+    source: str | tuple[str, ...] | None = None,
+    extension: str | tuple[str, ...] | None = None,
+    length: str | tuple[str, ...] | None = None,
     gen_ai: str | None = None,
     raw_filter: str | None = None,
     sort: str | None = None,
@@ -122,6 +126,14 @@ def search(
         filters["duration"] = duration
     if tag is not None:
         filters["tag"] = _join(tag)
+    if category is not None:
+        filters["category"] = _join(category)
+    if source is not None:
+        filters["source"] = _join(source)
+    if extension is not None:
+        filters["extension"] = _join(extension)
+    if length is not None:
+        filters["length"] = _join(length)
     if gen_ai is not None:
         filters["gen_ai"] = gen_ai
     if raw_filter is not None:

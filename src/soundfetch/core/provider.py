@@ -28,6 +28,7 @@ from .model import DownloadResult, SearchPage, SearchParams, SoundRef
 REGISTRY: dict[str, str] = {
     "freesound": "soundfetch.providers.freesound.provider:FreesoundProvider",
     "archive": "soundfetch.providers.archive.provider:ArchiveProvider",
+    "openverse": "soundfetch.providers.openverse.provider:OpenverseProvider",
     "video": "soundfetch.providers.video.provider:VideoProvider",
 }
 
