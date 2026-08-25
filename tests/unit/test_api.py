@@ -42,6 +42,10 @@ class TestSearch:
             license="cc0",
             duration="[1 TO 30]",
             tag="thunder",
+            category="sound_effect",
+            source="freesound",
+            extension=("wav", "flac"),
+            length="short",
             gen_ai="deny",
             raw_filter="samplerate:[44100 TO *]",
         )
@@ -50,6 +54,10 @@ class TestSearch:
             "license": "cc0",
             "duration": "[1 TO 30]",
             "tag": "thunder",
+            "category": "sound_effect",
+            "source": "freesound",
+            "extension": "wav,flac",
+            "length": "short",
             "gen_ai": "deny",
             "raw": "samplerate:[44100 TO *]",
         }

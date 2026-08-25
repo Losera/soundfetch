@@ -30,6 +30,23 @@ def test_sources_lists_registered_providers():
     assert result.exit_code == 0
     assert "archive" in result.output
     assert "freesound" in result.output
+    assert "openverse" in result.output
+
+
+def test_openverse_cli_exposes_approved_structured_filters():
+    result = CliRunner().invoke(main, ["openverse", "search", "--help"])
+    assert result.exit_code == 0
+    for option in ("--category", "--source", "--extension", "--length"):
+        assert option in result.output
+    assert "--tag" not in result.output
+    assert "--raw-filter" not in result.output
+
+
+def test_openverse_status_documents_anonymous_limits():
+    result = CliRunner().invoke(main, ["openverse", "status"])
+    assert result.exit_code == 0
+    assert "20 requests/minute" in result.output
+    assert "200 requests/day" in result.output
 
 
 def test_package_module_entry_point_runs_cli(tmp_path: Path):

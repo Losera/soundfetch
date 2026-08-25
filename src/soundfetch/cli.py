@@ -69,6 +69,14 @@ OPTION_DEFS: dict[str, dict[str, Any]] = {
     "license": {"multiple": True, "help": "License short code (repeatable)."},
     "duration": {"help": "Raw Solr range, e.g. '[1 TO 30]'."},
     "tag": {"multiple": True, "help": "Require this tag (repeatable)."},
+    "category": {"multiple": True, "help": "Media category (repeatable)."},
+    "source": {"multiple": True, "help": "Upstream source (repeatable)."},
+    "extension": {"multiple": True, "help": "File extension (repeatable)."},
+    "length": {
+        "multiple": True,
+        "type": click.Choice(["shortest", "short", "medium", "long"]),
+        "help": "Openverse duration bucket (repeatable).",
+    },
     "gen_ai": {
         "type": click.Choice(["allow", "deny", "unspecified", "any"]),
         "help": "Filter by Freesound gen_ai_preference.",
@@ -173,6 +181,12 @@ def _build_video(**opts: Any):
     return VideoProvider()
 
 
+def _build_openverse(**opts: Any):
+    from .providers.openverse.provider import OpenverseProvider
+
+    return OpenverseProvider()
+
+
 # ---------------------------------------------------------------------------
 # Freesound-only auth command (genuinely provider-specific)
 # ---------------------------------------------------------------------------
@@ -257,6 +271,22 @@ SPECS: dict[str, ProviderSpec] = {
         license_choices=("cc0", "cc-by", "cc-by-sa", "cc-by-nc", "any"),
         search_help="Search Internet Archive and write a manifest (no downloads).",
         status_hint="no configuration required (Internet Archive downloads need no auth)",
+    ),
+    "openverse": ProviderSpec(
+        name="openverse",
+        help="Openverse openly licensed audio index.",
+        default_outdir="./openverse-out",
+        build=_build_openverse,
+        filters=("license", "category", "source", "extension", "length"),
+        license_choices=(
+            "cc0", "cc-by", "cc-by-sa", "cc-by-nc", "cc-by-nd",
+            "cc-by-nc-sa", "cc-by-nc-nd", "pdm", "any",
+        ),
+        search_help="Search Openverse audio and write a manifest (no downloads).",
+        status_hint=(
+            "no configuration required; anonymous API limit is currently "
+            "20 requests/minute and 200 requests/day"
+        ),
     ),
     "video": ProviderSpec(
         name="video",
@@ -409,6 +439,10 @@ def _run_search(name: str, ctx: click.Context | None, **opts: Any) -> None:
             license=opts.get("license"),
             duration=opts.get("duration"),
             tag=opts.get("tag"),
+            category=opts.get("category"),
+            source=opts.get("source"),
+            extension=opts.get("extension"),
+            length=opts.get("length"),
             gen_ai=opts.get("gen_ai"),
             raw_filter=opts.get("raw_filter"),
             sort=opts.get("sort"),
@@ -479,6 +513,10 @@ def _run_download(name: str, ctx: click.Context | None, **opts: Any) -> None:
                 license=opts.get("license"),
                 duration=opts.get("duration"),
                 tag=opts.get("tag"),
+                category=opts.get("category"),
+                source=opts.get("source"),
+                extension=opts.get("extension"),
+                length=opts.get("length"),
                 gen_ai=opts.get("gen_ai"),
                 raw_filter=opts.get("raw_filter"),
                 page_size=opts["page_size"],

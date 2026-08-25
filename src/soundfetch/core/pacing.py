@@ -26,6 +26,7 @@ from typing import Callable
 DEFAULT_RATES: dict[str, float] = {
     "freesound": 0.9,   # ~54/min — safely under the 60/min cap
     "archive": 4.0,
+    "openverse": 0.25,  # 15/min — headroom below anonymous 20/min burst limit
     "video": 0.5,
 }
 

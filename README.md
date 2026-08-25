@@ -2,8 +2,8 @@
 
 Soundfetch searches public sound sources, downloads audio, and records every
 result in an append-only JSONL manifest. It supports Internet Archive,
-Freesound, and an optional `yt-dlp`-backed video provider through one CLI and
-Python API.
+Openverse, Freesound, and an optional `yt-dlp`-backed video provider through
+one CLI and Python API.
 
 ## Status and installation
 
@@ -59,6 +59,33 @@ Internet Archive covers its complete audio catalog rather than a curated
 sound-effects library. A broad query such as `rain` may rank music with “rain”
 in its title above a field recording. Prefer descriptive queries or narrow the
 search with repeatable `--tag` and `--license` options.
+
+## Openverse sound-effect search
+
+Openverse requires no credentials for anonymous use and provides a normalized
+search across openly licensed audio sources. Its `sound_effect` category is a
+useful way to avoid music, podcasts, and other non-effect results:
+
+```bash
+soundfetch openverse search "rain ambience" \
+  --category sound_effect --license cc0 --max-results 5 -o out/
+soundfetch openverse download --manifest out/manifest.jsonl -o out/
+```
+
+Openverse currently limits anonymous clients to 20 API requests per minute and
+200 per day; Soundfetch leaves headroom below the burst limit and uses pages of
+at most 20 results. Audio files are downloaded from their original third-party
+hosts, not from Openverse itself. The manifest preserves the Openverse UUID,
+upstream source and provider, landing page, creator, license URL, and generated
+attribution statement.
+
+Openverse aggregates metadata and does not verify that an upstream work is
+still available or correctly licensed. Review the original landing page and
+license before reuse. Soundfetch may list the same work separately through
+Openverse and a direct provider such as Freesound; v1 intentionally does not
+perform cross-provider deduplication. Use of Openverse is subject to its
+[terms](https://docs.openverse.org/terms_of_service.html), and Soundfetch is
+not endorsed or certified by Openverse.
 
 ## Freesound configuration and original downloads
 
@@ -345,7 +372,6 @@ guarantees.
 
 | Candidate | What it would add | Main integration question |
 |---|---|---|
-| [Openverse](https://api.openverse.org/) | A broad, normalized search over openly licensed audio, including a `sound_effect` category and anonymous API access | How should Soundfetch preserve the original source identity and deduplicate results already available through Freesound or Internet Archive? |
 | [Wikimedia Commons](https://www.mediawiki.org/wiki/API:Imageinfo) | Historical recordings, pronunciations, speeches, music, and community-contributed audio with rich attribution metadata | Can file search, `imageinfo`, and Commons extension metadata be normalized reliably enough to enforce per-file rights and attribution? |
 | [Library of Congress](https://www.loc.gov/apis/json-and-yaml/) | Publicly searchable historical and cultural audio collections without an API key | Rights and downloadable-media availability vary by item, so discovery must not imply permission or a usable audio file. |
 | [xeno-canto](https://xeno-canto.org/explore/api) | A focused wildlife and bioacoustics source that would serve field-recording and audio-ML users | Confirm current API access, reuse terms, attribution requirements, and acceptable automated-download behavior before design work. |
@@ -353,8 +379,6 @@ guarantees.
 | [Zenodo](https://developers.zenodo.org/) | Versioned research deposits, DOIs, checksums, and downloadable audio datasets | Zenodo records often contain archives or heterogeneous files rather than individual sounds; decide whether this belongs in the provider model or a dataset-ingestion layer. |
 | [Hugging Face Hub](https://huggingface.co/docs/hub/datasets-audio) | Versioned community audio datasets, including audio files, Parquet, and WebDataset layouts | Repository snapshots and dataset rows do not naturally map one-to-one to `SoundRef`; integration may fit an import/export adapter better than a search provider. |
 
-Openverse is the strongest next general-purpose candidate because its audio
-search and license metadata closely resemble Soundfetch's existing model.
 xeno-canto is the strongest specialized candidate because it adds a distinct
 bioacoustics corpus rather than another broad media catalog. Zenodo and the
 Hugging Face Hub should remain discovery work until Soundfetch decides whether
