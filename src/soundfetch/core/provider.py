@@ -1,6 +1,6 @@
 """Provider protocol + lazy registry.
 
-A provider is anything with two methods:
+A provider is anything with two required methods:
 
     search(params: SearchParams) -> SearchPage
     download(ref: SoundRef, dest_dir: Path) -> DownloadResult
@@ -8,6 +8,11 @@ A provider is anything with two methods:
 The core engine owns pagination, checkpointing, naming and resume, so
 providers never duplicate that logic. Adding a source = one module that
 implements the Protocol plus one line in REGISTRY.
+
+Providers whose output has mode-specific assets may additionally implement
+``prepare_download(ref) -> SoundRef``. The engine calls this optional hook
+before resume checks and filename selection so the effective format, checksum,
+and ``metadata["download_variant"]`` describe the bytes being downloaded.
 """
 
 from __future__ import annotations

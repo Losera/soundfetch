@@ -7,6 +7,7 @@ so command callbacks resolve the patched spec at call time (not import time).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from dataclasses import replace
@@ -46,6 +47,18 @@ def test_package_module_entry_point_runs_cli(tmp_path: Path):
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
     assert {row["name"] for row in payload["sources"]} >= {"archive", "freesound"}
+
+
+def test_load_dotenv_reads_the_process_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("FREESOUND_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("FREESOUND_API_KEY=cwd-specific-key\n")
+
+    cli_module._load_dotenv()
+
+    assert os.environ["FREESOUND_API_KEY"] == "cwd-specific-key"
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +190,37 @@ class TestArchiveCli:
         assert result.exit_code == 0, result.output
         assert fake.download_calls == ["1"]
         assert "downloaded=1" in result.output
+
+    def test_manifest_resume_is_reported_by_the_engine(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        fake = FakeProvider()
+        self._patch_spec(monkeypatch, fake)
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+        manifest = outdir / "manifest.jsonl"
+        (outdir / "rain.wav").write_bytes(b"cached")
+        append_record(
+            manifest,
+            {
+                "provider": "archive",
+                "provider_id": "1",
+                "name": "rain",
+                "file_format": "wav",
+                "status": "downloaded",
+                "local_file": "rain.wav",
+            },
+        )
+
+        result = CliRunner().invoke(
+            main,
+            ["archive", "download", "--manifest", str(manifest), "--json", "-o", str(outdir)],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["items"][0]["status"] == "skipped"
+        assert fake.download_calls == []
 
     def test_json_download_filters_manifest_by_provider_id(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

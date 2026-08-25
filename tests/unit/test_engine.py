@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -213,6 +214,43 @@ class TestDownloadRefs:
 
         assert results[0].status == "downloaded"
         assert provider.download_calls == ["1"]
+
+    def test_resume_distinguishes_provider_download_variants(self, tmp_path: Path):
+        class VariantProvider(FakeProvider):
+            def __init__(self, variant: str, file_format: str):
+                super().__init__()
+                self.variant = variant
+                self.file_format = file_format
+
+            def prepare_download(self, ref):
+                return replace(
+                    ref,
+                    file_format=self.file_format,
+                    checksum=None if self.variant == "preview" else "original-md5",
+                    metadata={**ref.metadata, "download_variant": self.variant},
+                )
+
+        dest_dir = tmp_path / "out"
+        manifest = tmp_path / "manifest.jsonl"
+        ref = make_ref("1", name="rain")
+
+        preview = download_refs(VariantProvider("preview", "mp3"), [ref], dest_dir, manifest)
+        original = download_refs(VariantProvider("original", "wav"), [ref], dest_dir, manifest)
+        preview_again = download_refs(
+            VariantProvider("preview", "mp3"), [ref], dest_dir, manifest
+        )
+
+        assert preview[0].local_path.name == "rain.mp3"
+        assert original[0].local_path.name == "rain.wav"
+        assert preview_again[0].status == "skipped"
+        assert preview_again[0].local_path.name == "rain.mp3"
+        records = read_records(manifest)
+        assert [record["metadata"]["download_variant"] for record in records] == [
+            "preview",
+            "original",
+        ]
+        assert records[0]["checksum"] is None
+        assert records[1]["checksum"] == "original-md5"
 
     def test_overwrite_forces_redownload(self, tmp_path: Path):
         dest_dir = tmp_path / "out"
