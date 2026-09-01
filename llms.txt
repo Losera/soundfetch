@@ -1,10 +1,10 @@
 # soundfetch
 
-> Batch sound/data collection for ML researchers and their agents. A CLI + Python
-> library that queries sound databases (Freesound, Internet Archive, video),
-> downloads audio (previews or lossless originals), and writes a machine-readable
-> JSONL manifest of every sound it finds. The manifest is the dataset index,
-> search output, download checkpoint, and resume log all at once.
+> License-aware audio dataset collection for ML researchers and their agents. A
+> CLI + Python library queries Openverse, Freesound, Internet Archive, and video,
+> downloads audio with resumable checkpoints, and writes a machine-readable JSONL
+> manifest. The manifest is the dataset index, search output, download checkpoint,
+> and resume log all at once.
 
 ## Overview
 
@@ -13,7 +13,9 @@
 
 ## Install
 
-- [pyproject.toml](https://github.com/Losera/soundfetch/blob/main/pyproject.toml): Build config, base deps (click, requests, python-dotenv), and optional extras (`mcp`, `bench`, `video`, `dev`).
+- [pyproject.toml](https://github.com/Losera/soundfetch/blob/main/pyproject.toml): Build config, base deps (click, requests, python-dotenv), and optional extras (`mcp`, `export`, `bench`, `video`, `dev`).
+
+After the first public release:
 
 ```bash
 pip install soundfetch              # base CLI
@@ -26,9 +28,9 @@ pip install "soundfetch[mcp]"       # MCP server for agents
 - [CLAUDE.md](https://github.com/Losera/soundfetch/blob/main/CLAUDE.md): Complete command reference and architecture for anyone (human or agent) working in the codebase.
 
 ```bash
-soundfetch freesound search "piano" --license cc0 -o out/
-soundfetch freesound download "piano" --mode preview -o out/
-soundfetch archive search "rain storm" --license cc0 -o out/
+soundfetch openverse search bird --license cc0 --extension mp3 --max-results 5 -o out/
+soundfetch manifest report out/manifest.jsonl
+soundfetch openverse download --manifest out/manifest.jsonl -o out/
 soundfetch --json sources              # machine-readable provider list
 soundfetch --json freesound status     # machine-readable config status
 ```
@@ -48,7 +50,7 @@ results = soundfetch.download(refs, dest_dir="out/")
 
 ## CLI
 
-- [src/soundfetch/cli.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/cli.py): Spec-driven click wiring — `soundfetch <provider> <verb>`. The `--json` flag on `search` / `status` / `sources` emits machine-readable JSON on stdout (and `{"ok": false, "error": {...}}` with a nonzero exit on failure). Download commands expose `--workers N` (parallel threads) and `--rate R` (token-bucket requests/sec that overrides `--rate-delay`), both wired to `core.pacing`.
+- [src/soundfetch/cli.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/cli.py): Spec-driven click wiring — `soundfetch <provider> <verb>` plus the provider-independent `soundfetch manifest report`. The `--json` flag emits machine-readable JSON on stdout (and `{"ok": false, "error": {...}}` with a nonzero exit on failure). Download commands expose `--workers N` and token-bucket `--rate R`, both wired to `core.pacing`.
 
 ## Agents & MCP
 
@@ -68,4 +70,4 @@ python scripts/benchmark_api.py --limit 3 --query rain
 
 ## Tests
 
-- [tests/](https://github.com/Losera/soundfetch/blob/main/tests/): Offline suite (default `pytest -m "not live"`) with a scripted `FakeProvider` test double; live smoke tests gated behind `-m live`. Optional-framework tests use `importorskip`, so they pass without installing the frameworks.
+- [tests/](https://github.com/Losera/soundfetch/blob/main/tests/): Offline suite (default `pytest -m "not live"`) with provider fakes and subprocess protocol coverage; deliberate real-provider smoke tests are gated behind `-m live`.

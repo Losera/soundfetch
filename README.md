@@ -1,9 +1,22 @@
 # soundfetch
 
-Soundfetch searches public sound sources, downloads audio, and records every
-result in an append-only JSONL manifest. It supports Internet Archive,
-Openverse, Freesound, and an optional `yt-dlp`-backed video provider through
-one CLI and Python API.
+Soundfetch builds reviewable, license-aware audio datasets from public sound
+sources. It searches, downloads with resumable checkpoints, and records every
+result in an append-only JSONL manifest. Internet Archive, Openverse,
+Freesound, and an optional `yt-dlp`-backed video provider share one CLI and
+Python API.
+
+```mermaid
+flowchart LR
+    A[Archive] --> E[Shared search/download engine]
+    O[Openverse] --> E
+    F[Freesound] --> E
+    V[Video] --> E
+    E --> M[(Append-only manifest)]
+    M --> R[Dataset health report]
+    M --> D[Resumable downloads]
+    D --> X[Attribution + WebDataset]
+```
 
 ## Status and installation
 
@@ -32,45 +45,29 @@ The 0.4.0 beta support target is Linux with Python 3.10 through 3.13, the
 versions exercised by CI. The package declares Python 3.10 or newer, but
 Python 3.14, macOS, and Windows are not release-tested for this beta.
 
-## Five-minute quick start: Internet Archive
+## Five-minute quick start: Openverse
 
-Internet Archive requires no API key. Search for a descriptive sound, review
-the resulting manifest, and then download its listed files:
+Openverse needs no credentials and provides a normalized search across openly
+licensed sources. Search for a small CC0 collection, inspect its manifest, and
+download only after review:
 
 ```bash
-soundfetch archive search "field recording rain" \
-  --license cc0 --max-results 5 -o out/
+soundfetch openverse search bird \
+  --license cc0 --extension mp3 --max-results 5 -o out/
 
-# Review out/manifest.jsonl before downloading.
-soundfetch archive download --manifest out/manifest.jsonl -o out/
+soundfetch manifest report out/manifest.jsonl
+soundfetch openverse download --manifest out/manifest.jsonl -o out/
+soundfetch manifest report out/manifest.jsonl
 ```
 
 Search and download commands maintain `manifest.jsonl` in the output directory.
 Status, source-listing, authentication, and MCP commands do not write a
-manifest.
+manifest. The report is read-only and summarizes effective records, download
+state, provider and license counts, bytes, duration coverage, missing files or
+checksums, and provenance gaps. Add `--json` for automation.
 
-Internet Archive serves original-quality files without authentication.
-Access-restricted lending or streaming-only items are excluded because they
-cannot be downloaded directly. Searches resolve file metadata for each result,
-so even a small page may take several seconds; concise
-`archive metadata: completed/total` progress is written to stderr.
-
-Internet Archive covers its complete audio catalog rather than a curated
-sound-effects library. A broad query such as `rain` may rank music with “rain”
-in its title above a field recording. Prefer descriptive queries or narrow the
-search with repeatable `--tag` and `--license` options.
-
-## Openverse sound-effect search
-
-Openverse requires no credentials for anonymous use and provides a normalized
-search across openly licensed audio sources. Its `sound_effect` category is a
-useful way to avoid music, podcasts, and other non-effect results:
-
-```bash
-soundfetch openverse search "rain ambience" \
-  --category sound_effect --license cc0 --max-results 5 -o out/
-soundfetch openverse download --manifest out/manifest.jsonl -o out/
-```
+The complete [CC0 audio dataset walkthrough](https://github.com/Losera/soundfetch/blob/main/docs/openverse-dataset-walkthrough.md)
+continues through attribution and WebDataset export.
 
 Openverse currently limits anonymous clients to 20 API requests per minute and
 200 per day; Soundfetch leaves headroom below the burst limit and uses pages of
@@ -85,7 +82,32 @@ license before reuse. Soundfetch may list the same work separately through
 Openverse and a direct provider such as Freesound; v1 intentionally does not
 perform cross-provider deduplication. Use of Openverse is subject to its
 [terms](https://docs.openverse.org/terms_of_service.html), and Soundfetch is
-not endorsed or certified by Openverse.
+not endorsed or certified by Openverse. Openverse's category metadata is
+sparse for some sources, so a restrictive `--category` filter may yield no
+results even when a keyword search finds suitable sounds.
+
+## Internet Archive
+
+Internet Archive is the other credential-free provider. It serves original
+files from its complete audio catalog:
+
+```bash
+soundfetch archive search "field recording rain" \
+  --license cc0 --max-results 5 -o out/
+soundfetch manifest report out/manifest.jsonl
+soundfetch archive download --manifest out/manifest.jsonl -o out/
+```
+
+Internet Archive serves original-quality files without authentication.
+Access-restricted lending or streaming-only items are excluded because they
+cannot be downloaded directly. Searches resolve file metadata for each result,
+so even a small page may take several seconds; concise
+`archive metadata: completed/total` progress is written to stderr.
+
+Internet Archive covers its complete audio catalog rather than a curated
+sound-effects library. A broad query such as `rain` may rank music with “rain”
+in its title above a field recording. Prefer descriptive queries or narrow the
+search with repeatable `--tag` and `--license` options.
 
 ## Freesound configuration and original downloads
 
@@ -144,10 +166,14 @@ The recommended workflow separates discovery from downloading:
 soundfetch freesound search "field recording rain" \
   --license cc-by --max-results 20 -o out/
 
-# 2. Review or programmatically filter out/manifest.jsonl.
+# 2. Summarize, then review or programmatically filter the JSONL records.
+soundfetch manifest report out/manifest.jsonl
 
 # 3. Download the reviewed manifest. Completed records resume by default.
 soundfetch freesound download --manifest out/manifest.jsonl -o out/
+
+# 4. Confirm download and provenance health.
+soundfetch manifest report out/manifest.jsonl
 ```
 
 The manifest contains one JSON object per line and is:

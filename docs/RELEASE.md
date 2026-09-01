@@ -52,6 +52,9 @@ python -m venv /tmp/soundfetch-wheel-smoke
 /tmp/soundfetch-wheel-smoke/bin/soundfetch --version
 /tmp/soundfetch-wheel-smoke/bin/soundfetch --help
 /tmp/soundfetch-wheel-smoke/bin/soundfetch sources --json
+touch /tmp/soundfetch-wheel-smoke/empty-manifest.jsonl
+/tmp/soundfetch-wheel-smoke/bin/soundfetch manifest report \
+  /tmp/soundfetch-wheel-smoke/empty-manifest.jsonl --json
 /tmp/soundfetch-wheel-smoke/bin/python -c 'import soundfetch, soundfetch.api, soundfetch.cli, soundfetch.core; print(soundfetch.__file__)'
 ```
 
