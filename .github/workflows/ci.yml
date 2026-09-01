@@ -40,6 +40,9 @@ jobs:
           "$RUNNER_TEMP/soundfetch-wheel-smoke/bin/soundfetch" --version
           "$RUNNER_TEMP/soundfetch-wheel-smoke/bin/soundfetch" --help
           "$RUNNER_TEMP/soundfetch-wheel-smoke/bin/soundfetch" sources --json
+          touch "$RUNNER_TEMP/empty-manifest.jsonl"
+          "$RUNNER_TEMP/soundfetch-wheel-smoke/bin/soundfetch" manifest report \
+            "$RUNNER_TEMP/empty-manifest.jsonl" --json
           "$RUNNER_TEMP/soundfetch-wheel-smoke/bin/python" - <<'PY'
           import os
           import pathlib

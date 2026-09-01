@@ -6,13 +6,16 @@ review and the checks in `docs/RELEASE.md`.
 
 ## Highlights
 
-- Search and download from Freesound and Internet Archive through one
-  append-only, last-record-wins manifest format; the optional video provider
-  uses `yt-dlp`.
+- Search and download from credential-free Openverse and Internet Archive or
+  authenticated Freesound through one append-only, last-record-wins manifest
+  format; the optional video provider uses `yt-dlp`.
 - Resume-safe downloads, checksum validation, bounded worker pools, rate
   controls, structured JSON CLI output, and provider metadata progress.
 - A public Python API for search, manifest review, selected downloads, and
   mixed-provider collections.
+- A read-only `soundfetch manifest report` command for status, provider and
+  license counts, bytes, duration coverage, missing files/checksums, and
+  provenance gaps, with structured JSON output.
 - Four MCP tools for source discovery, provider status, bounded search, and
   manifest downloads.
 - Optional WebDataset and attribution exports with real-dependency CI coverage.
@@ -34,6 +37,10 @@ review and the checks in `docs/RELEASE.md`.
   OAuth2.
 - Internet Archive search resolves file metadata per item and can take tens of
   seconds even for a small result page. Progress is emitted on stderr.
+- Openverse anonymously limits API usage and downloads files from changing
+  third-party hosts; users must verify the original landing page and license.
+  Category metadata is sparse for some upstream sources, so restrictive
+  category filters can return no results.
 - Claude Desktop registration is documented, but desktop-host operation is
   experimental. The recorded trial did not exercise host-driven downloads or
   shutdown/cleanup.

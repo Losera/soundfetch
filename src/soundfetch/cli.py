@@ -741,6 +741,82 @@ def main(ctx: click.Context, verbose: bool, json_mode: bool) -> None:
     ctx.obj["json"] = json_mode
 
 
+@main.group("manifest")
+def manifest_group() -> None:
+    """Inspect append-only Soundfetch manifests."""
+
+
+@manifest_group.command("report")
+@click.argument(
+    "manifest",
+    type=click.Path(dir_okay=False, path_type=Path),
+)
+@click.option(
+    "--dest-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Base directory for downloaded files (default: manifest directory).",
+)
+@click.option("--json", "json_mode", is_flag=True, help="Emit JSON on stdout.")
+@click.pass_context
+def manifest_report(
+    ctx: click.Context,
+    manifest: Path,
+    dest_dir: Path | None,
+    json_mode: bool,
+) -> None:
+    """Report dataset health and provenance gaps for MANIFEST."""
+    from .report import build_manifest_report
+
+    json_mode = json_mode or bool(ctx.find_root().obj.get("json"))
+    try:
+        report = build_manifest_report(manifest, dest_dir=dest_dir)
+    except Exception as exc:
+        if json_mode:
+            _json_error(exc)
+        raise click.ClickException(str(exc)) from exc
+
+    payload = {
+        "ok": True,
+        "command": "manifest-report",
+        "manifest": str(manifest),
+        **report,
+    }
+    if json_mode:
+        _emit_json(payload)
+        return
+
+    records = report["records"]
+    downloads = report["downloads"]
+    provenance = report["provenance"]
+    click.echo(
+        "records: "
+        f"effective={records['effective']} valid={records['valid']} "
+        f"superseded={records['superseded']} invalid={records['invalid']}"
+    )
+    click.echo(f"status: {_format_counts(report['status_counts'])}")
+    click.echo(f"providers: {_format_counts(report['provider_counts'])}")
+    click.echo(f"licenses: {_format_counts(report['license_counts'])}")
+    click.echo(
+        "downloads: "
+        f"count={downloads['count']} bytes={downloads['bytes']} "
+        f"duration_seconds={downloads['duration_seconds']} "
+        f"duration_known={downloads['duration_known']} "
+        f"duration_unknown={downloads['duration_unknown']}"
+    )
+    click.echo(
+        "gaps: "
+        f"missing_local_files={downloads['missing_local_files']} "
+        f"missing_checksums={downloads['missing_checksums']} "
+        f"missing_license={provenance['missing_license']} "
+        f"missing_source_url={provenance['missing_source_url']}"
+    )
+
+
+def _format_counts(counts: dict[str, int]) -> str:
+    return ", ".join(f"{key}={value}" for key, value in counts.items()) or "none"
+
+
 @main.command("sources")
 @click.option("--json", "json_mode", is_flag=True, help="Emit JSON on stdout.")
 @click.pass_context

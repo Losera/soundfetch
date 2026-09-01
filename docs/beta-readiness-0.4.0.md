@@ -196,9 +196,40 @@ artifacts and must not be uploaded:
   `2b20790ca906eb34cf6e51b31e7f89e514653823da8c5690aa6f1b557f05f78a`;
   sdist `0c925161bd5d423228204a407e6156882f29b501d169c0e138d04147ba239675`.
 
+## 2026-08-31 manifest-report feasibility audit
+
+The uncommitted `feat/manifest-report` working tree, based on merged Openverse
+commit `6dfaf09`, produced the following pre-review evidence. It is not an
+approved release candidate, and its temporary artifacts must not be published:
+
+- Python 3.13.14: 293 offline tests passed with the MCP subprocess test
+  excluded from the restricted run; that exact MCP test passed separately
+  outside the process sandbox, covering 294 offline tests in total.
+- Wheel and sdist build plus Twine validation passed after the final onboarding
+  and package-metadata refinements. A fresh wheel environment imported base,
+  report, MCP, and export surfaces and exercised an empty manifest report. That
+  smoke environment used experimental Python 3.14 and does not extend the
+  supported-version claim. Temporary pre-review SHA-256 values are
+  `d5899f025718f03e72b5b0af94b23a07f4a52189ffeba0d9bc19a22d1a44ec5c`
+  for the wheel and
+  `f99c7ad32fe6e3825c10dad4bd0fa00b6f1d0ec57c796894e0cd55332460be04`
+  for the sdist.
+- A bounded live Archive search returned one result. A bounded Openverse search
+  returned five CC0 MP3 records; one inspected 9,811-byte item downloaded, and
+  the report found five effective records, complete license/source metadata,
+  and the expected missing upstream checksum.
+- The first proposed Openverse demo combined keyword, category, license,
+  length, and extension filters and returned zero results. Follow-up evidence
+  showed sparse category metadata in otherwise relevant records, so the quick
+  start was narrowed to the live-verified keyword, license, and extension
+  filters and the limitation was documented.
+
+Final candidate hashes, supported-version CI, wheel smokes, and live evidence
+must still be produced from one reviewed immutable commit.
+
 ## Remaining blockers
 
-As of 2026-08-12, what still stands between this candidate and the scoped beta
+As of 2026-08-31, what still stands between this candidate and the scoped beta
 claim:
 
 1. **Human semantic diff review** (item 1 of `docs/RELEASE.md` §5) has not
