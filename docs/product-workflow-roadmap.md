@@ -5,7 +5,7 @@ implementation plan
 
 **Last reviewed:** 2026-08-12
 
-**Current release focus:** 0.4.0 beta candidate
+**Current release focus:** 0.5.0 beta candidate
 
 This document consolidates the product, workflow, scale, and portfolio ideas
 discussed in August 2026. It is a prioritized decision aid. Items below become

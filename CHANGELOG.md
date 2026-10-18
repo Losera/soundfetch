@@ -5,7 +5,7 @@ and machine-readable tool contracts.
 
 ## Unreleased
 
-## 0.5.0.dev0
+## 0.5.0 - 2026-10-17
 
 ### Breaking
 
