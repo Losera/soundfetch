@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a user workflow or focused improvement
+title: "feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: User workflow
+      description: Who needs this, and what are they trying to complete?
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current limitation
+      description: What happens with Soundfetch today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe successful behavior without prescribing architecture.
+    validations:
+      required: true

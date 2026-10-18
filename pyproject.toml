@@ -14,12 +14,16 @@ keywords = ["audio", "datasets", "openverse", "freesound", "internet-archive", "
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
     "Topic :: Multimedia :: Sound/Audio",
 ]
 dependencies = [
@@ -51,6 +55,8 @@ bench = [
 
 [project.urls]
 Homepage = "https://github.com/Losera/soundfetch"
+Documentation = "https://github.com/Losera/soundfetch#readme"
+Changelog = "https://github.com/Losera/soundfetch/blob/main/CHANGELOG.md"
 Repository = "https://github.com/Losera/soundfetch"
 Issues = "https://github.com/Losera/soundfetch/issues"
 

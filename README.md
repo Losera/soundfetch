@@ -1,5 +1,10 @@
 # soundfetch
 
+[![CI](https://github.com/Losera/soundfetch/actions/workflows/ci.yml/badge.svg)](https://github.com/Losera/soundfetch/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/soundfetch.svg)](https://pypi.org/project/soundfetch/)
+[![Python](https://img.shields.io/pypi/pyversions/soundfetch.svg)](https://pypi.org/project/soundfetch/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Soundfetch builds reviewable, license-aware audio datasets from public sound
 sources. It searches, downloads with resumable checkpoints, and records every
 result in an append-only JSONL manifest. Internet Archive, Openverse,
@@ -69,6 +74,9 @@ checksums, and provenance gaps. Add `--json` for automation.
 
 The complete [CC0 audio dataset walkthrough](https://github.com/Losera/soundfetch/blob/main/docs/openverse-dataset-walkthrough.md)
 continues through attribution and WebDataset export.
+Technical music producers can instead follow the
+[DAW handoff workflow](docs/music-production-workflow.md), which also states
+the auditioning and audio-processing features Soundfetch does not provide.
 
 Openverse currently limits anonymous clients to 20 API requests per minute and
 200 per day; Soundfetch leaves headroom below the burst limit and uses pages of
@@ -366,6 +374,8 @@ is experimental in 0.4.0: one read-only Claude Desktop trial succeeded on an
 unofficial Arch Linux package, but host-driven downloads, shutdown/cleanup,
 macOS, Windows, and officially packaged Ubuntu/Debian hosts are not part of
 the supported beta claim.
+Use the [MCP host validation matrix](docs/mcp-host-validation.md) when testing
+another client; only completed rows are compatibility evidence.
 
 ## Data exports
 
