@@ -20,8 +20,9 @@ flowchart LR
 
 ## Status and installation
 
-Soundfetch 0.4.0 is a beta candidate under active review. It has not been
-tagged or published to a package index yet, so install it from a source
+Soundfetch 0.4.0 is a tagged beta candidate under active review but has not
+been published to a package index yet. Current development identifies as
+0.5.0.dev0. Until the first package-index release, install from a source
 checkout:
 
 ```bash
@@ -313,12 +314,14 @@ Top-level exports include `search`, `download`, `save_search`,
 Library callers can pass `provider_progress=` to `search()` for
 provider-specific `(completed, total)` updates.
 
-## MCP server
+## MCP server for agents
 
-The optional MCP server exposes four tools over stdio:
+The optional MCP server exposes five tools over stdio. Tool results are native
+structured objects, and search defaults to credential-free Openverse:
 
 - `search_sounds`
 - `download_manifest`
+- `report_manifest`
 - `check_provider_status`
 - `list_sources`
 
@@ -351,6 +354,12 @@ Model-supplied manifest and destination paths are confined to
 directory. Use a dedicated workspace and pass paths relative to that root.
 Provider titles, descriptions, and tags are remote, untrusted content; MCP
 responses bound their length but do not make them trustworthy.
+
+`search_sounds` returns a concise selection-oriented result by default. Pass
+`include_metadata=true` only when complete provider metadata is required. It
+accepts the shared license, duration, tag, category, source, extension, length,
+generative-AI preference, and sort filters. After review, pass `provider_ids`
+to `download_manifest` to download only selected manifest entries.
 
 The MCP protocol surface has automated subprocess coverage. Desktop-host use
 is experimental in 0.4.0: one read-only Claude Desktop trial succeeded on an

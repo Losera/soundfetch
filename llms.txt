@@ -9,7 +9,8 @@
 ## Overview
 
 - [README](https://github.com/Losera/soundfetch/blob/main/README.md): What soundfetch is, the full CLI usage, license-aware collection, and the Python API.
-- [PLAN.md](https://github.com/Losera/soundfetch/blob/main/PLAN.md): Design rationale and phased rollout (note: this file is corrupted by a bad paste — treat as a rough guide, not a literal spec).
+- [Release process](https://github.com/Losera/soundfetch/blob/main/docs/RELEASE.md): Release gates, artifact verification, publishing, and recovery.
+- [Manifest workflow](https://github.com/Losera/soundfetch/blob/main/docs/openverse-dataset-walkthrough.md): Credential-free search, review, selected download, health reporting, and export.
 
 ## Install
 
@@ -24,7 +25,7 @@ pip install "soundfetch[mcp]"       # MCP server for agents
 
 ## Quickstart
 
-- [README — Usage](https://github.com/Losera/soundfetch/blob/main/README.md#usage): CLI commands for search / download / status across providers.
+- [README — Quick start](https://github.com/Losera/soundfetch/blob/main/README.md#five-minute-quick-start-openverse): Credential-free search, review, and download.
 - [CLAUDE.md](https://github.com/Losera/soundfetch/blob/main/CLAUDE.md): Complete command reference and architecture for anyone (human or agent) working in the codebase.
 
 ```bash
@@ -54,7 +55,7 @@ results = soundfetch.download(refs, dest_dir="out/")
 
 ## Agents & MCP
 
-- [src/soundfetch/mcp.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/mcp.py): The MCP server. Four tools — `search_sounds`, `download_manifest`, `check_provider_status`, `list_sources` — exposed over stdio via `soundfetch mcp`. Tool logic is SDK-independent plain callables with injectable deps.
+- [src/soundfetch/mcp.py](https://github.com/Losera/soundfetch/blob/main/src/soundfetch/mcp.py): The MCP server. Five native-structured tools — `search_sounds`, `download_manifest`, `report_manifest`, `check_provider_status`, and `list_sources` — exposed over stdio via `soundfetch mcp`. Search defaults to Openverse; selected downloads accept provider IDs.
 - [MCP protocol](https://modelcontextprotocol.io): The Model Context Protocol standard (how `soundfetch mcp` talks to Claude Desktop / Code, Cursor, etc.).
 
 ## Benchmarks
