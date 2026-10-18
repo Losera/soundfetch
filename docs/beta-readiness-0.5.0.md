@@ -30,8 +30,8 @@ Completed in-session on 2026-10-17 against base commit `651b021` (merged PR
 
 ## 2. Deterministic verification
 
-Run on `release/0.5.0` at commit `2e6b431` plus the version/doc edits below,
-Python 3.13.14 (this worktree's `.venv`):
+Run on `release/0.5.0` at commit `4d1a611`, Python 3.13.14 (this worktree's
+`.venv`):
 
 - `.venv/bin/python -m pytest -m "not live"`: **299 passed, 5 deselected**.
 - `.venv/bin/python -m pip install -e ".[mcp]"` then
@@ -41,10 +41,10 @@ Python 3.13.14 (this worktree's `.venv`):
   clean.
 - `git diff --check`: clean.
 
-GitHub Actions already exercises the Python 3.10–3.13 matrix on every push;
-this candidate's exact commit has not yet been pushed, so the matrix result
-above is from the merge commit it is built on, not this candidate's final
-diff. Re-run CI once this candidate is pushed, before tagging.
+This candidate (`release/0.5.0` at `4d1a611`) was pushed and its own CI run
+(https://github.com/Losera/soundfetch/actions/runs/39089651990) passed all
+seven jobs: `test` on Python 3.10, 3.11, 3.12, and 3.13, `package`, `mcp`, and
+`export`.
 
 ## 3. Release candidate validation
 
@@ -113,28 +113,27 @@ desktop host.
 
 ## Remaining blockers
 
-1. **This candidate has not been pushed or run through CI as its own commit.**
-   Push `release/0.5.0`, confirm the Python 3.10–3.13 matrix, `package`,
-   `mcp`, and `export` jobs all pass on that exact commit before tagging.
-2. **First-publication credential path is undecided.** `docs/RELEASE.md` §6
-   specifies a project-scoped PyPI token, which cannot exist before the
-   project has a first release on the index. Two options, neither implemented:
-   a one-time user-scoped token (rotate to project-scoped immediately after),
-   or a PyPI pending trusted publisher bound to `Losera/soundfetch` plus a
-   `release.yml` workflow (a separate CI change requiring its own review).
-   This decision blocks §6, not the deterministic gates above.
-3. **No desktop MCP host trial exists for the new contract.** Not a blocker
+1. **First-publication credential path: decided, not yet executed.** The
+   maintainer chose a one-time user-scoped PyPI API token for this first
+   upload, rotating to a project-scoped token immediately afterward, over a
+   trusted-publisher setup (which would need its own reviewed `release.yml`
+   change first). The maintainer still needs to generate that token on PyPI
+   themselves — an agent cannot create account credentials — before §6 can
+   run.
+2. **No desktop MCP host trial exists for the new contract.** Not a blocker
    for this narrower Linux CLI/API beta claim (per the 0.4.0 precedent), but
    the MCP host validation matrix's "experimental" status is now additionally
    stale in substance: the one completed row tested the old string-encoded
    tool contract, which no longer exists.
-4. **No tag exists and nothing is published.** Tagging and publication
+3. **No tag exists and nothing is published.** Tagging and publication
    require explicit human authorization per `docs/RELEASE.md` §5–6, which has
    not been given.
 
 ## Release decision
 
-**Not release-ready yet.** Items 1–2 above are concrete, resolvable gates;
-item 3 is a disclosed limitation, not a blocker, consistent with how 0.4.0
-treated desktop-host evidence. No tag or publication is authorized by this
+**Not release-ready yet.** Item 1 is the one concrete remaining action, and
+it is the maintainer's to take (PyPI does not let anyone else generate a
+token on their account). Item 2 is a disclosed limitation, not a blocker,
+consistent with how 0.4.0 treated desktop-host evidence. No tag or
+publication is authorized by this
 document.
