@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import timedelta
 from pathlib import Path
 import sys
@@ -11,7 +10,7 @@ import sys
 import pytest
 
 
-def test_stdio_handshake_tools_and_structured_result():
+def test_stdio_handshake_tools_and_structured_result(tmp_path: Path):
     pytest.importorskip("mcp")
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
@@ -19,26 +18,35 @@ def test_stdio_handshake_tools_and_structured_result():
     async def exercise() -> None:
         executable = Path(sys.executable).with_name("soundfetch")
         command = str(executable) if executable.exists() else "soundfetch"
-        params = StdioServerParameters(command=command, args=["mcp"])
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.touch()
+        params = StdioServerParameters(
+            command=command,
+            args=["mcp"],
+            cwd=str(tmp_path),
+        )
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write, read_timeout_seconds=timedelta(seconds=10)) as session:
                 initialized = await session.initialize()
                 tools = await session.list_tools()
                 result = await session.call_tool("list_sources", {})
+                report = await session.call_tool(
+                    "report_manifest", {"manifest": "manifest.jsonl"}
+                )
 
         assert initialized.serverInfo.name == "soundfetch"
         assert {tool.name for tool in tools.tools} == {
             "search_sounds",
             "download_manifest",
+            "report_manifest",
             "check_provider_status",
             "list_sources",
         }
         assert result.isError is False
         assert result.structuredContent is not None
-        # Tools are typed `-> str` and return json.dumps(...); the SDK wraps an
-        # unstructured string return as {"result": "<json>"}, so callers must
-        # decode twice to reach the actual payload.
-        payload = json.loads(result.structuredContent["result"])
-        assert payload["ok"] is True
+        assert result.structuredContent["ok"] is True
+        assert report.isError is False
+        assert report.structuredContent is not None
+        assert report.structuredContent["records"]["effective"] == 0
 
     asyncio.run(exercise())

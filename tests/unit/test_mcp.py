@@ -14,6 +14,7 @@ from soundfetch.mcp import (
     tool_check_provider_status,
     tool_download_manifest,
     tool_list_sources,
+    tool_report_manifest,
     tool_search_sounds,
 )
 
@@ -129,11 +130,64 @@ class TestToolSearchSounds:
         page = type("SearchPage", (), {"results": [ref], "total": 1, "has_more": False})()
         provider = FakeProvider(pages=[page])
 
-        result = tool_search_sounds("rain", provider="fake", providers={"fake": provider})
+        result = tool_search_sounds(
+            "rain",
+            provider="fake",
+            providers={"fake": provider},
+            include_metadata=True,
+        )
 
         description = result["results"][0]["metadata"]["description"]
         assert len(description) < len(huge)
         assert description.endswith("[truncated]")
+
+    def test_search_defaults_to_summary_and_forwards_filters(self, tmp_path: Path):
+        ref = make_ref(
+            "1",
+            metadata={
+                "license": "cc0",
+                "username": "recorder",
+                "duration_ms": 1500,
+                "filesize": 42,
+                "attribution": "Bird by recorder, CC0",
+                "description": "omitted by default",
+            },
+        )
+        page = type(
+            "SearchPage", (), {"results": [ref], "total": 1, "has_more": False}
+        )()
+        provider = FakeProvider(pages=[page])
+
+        result = tool_search_sounds(
+            "bird",
+            provider="fake",
+            providers={"fake": provider},
+            duration="short",
+            tag="nature",
+            category="sound_effect",
+            source="freesound",
+            extension="mp3",
+            length="shortest",
+            gen_ai="deny",
+            sort="relevance",
+        )
+
+        item = result["results"][0]
+        assert item["license"] == "cc0"
+        assert item["creator"] == "recorder"
+        assert item["duration_seconds"] == 1.5
+        assert item["filesize"] == 42
+        assert "metadata" not in item
+        assert provider.search_params[0].filters == {
+            "duration": "short",
+            "tag": "nature",
+            "category": "sound_effect",
+            "source": "freesound",
+            "extension": "mp3",
+            "length": "shortest",
+            "gen_ai": "deny",
+        }
+        assert provider.search_params[0].sort == "relevance"
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +244,72 @@ class TestToolDownloadManifest:
         assert result["ok"] is True
         assert result["skipped"] == 1
         assert result["downloaded"] == 0
+
+    def test_provider_ids_select_in_manifest_order(self, tmp_path: Path):
+        manifest = tmp_path / "manifest.jsonl"
+        _write_manifest(
+            manifest,
+            [
+                {"provider": "fake", "provider_id": "1", "name": "a", "status": "listed"},
+                {"provider": "fake", "provider_id": "2", "name": "b", "status": "listed"},
+                {"provider": "fake", "provider_id": "3", "name": "c", "status": "listed"},
+            ],
+        )
+        provider = FakeProvider()
+
+        result = tool_download_manifest(
+            str(manifest),
+            dest_dir=str(tmp_path / "out"),
+            provider_ids=["3", "1"],
+            providers={"fake": provider},
+        )
+
+        assert result["ok"] is True
+        assert provider.download_calls == ["1", "3"]
+
+    def test_missing_provider_id_does_not_download(self, tmp_path: Path):
+        manifest = tmp_path / "manifest.jsonl"
+        _write_manifest(
+            manifest,
+            [{"provider": "fake", "provider_id": "1", "status": "listed"}],
+        )
+        provider = FakeProvider()
+
+        result = tool_download_manifest(
+            str(manifest),
+            provider_ids=["missing"],
+            providers={"fake": provider},
+        )
+
+        assert result["ok"] is False
+        assert "missing" in result["error"]
+        assert provider.download_calls == []
+
+
+class TestToolReportManifest:
+    def test_reports_manifest_without_writing(self, tmp_path: Path):
+        manifest = tmp_path / "manifest.jsonl"
+        _write_manifest(
+            manifest,
+            [{"provider": "fake", "provider_id": "1", "status": "listed"}],
+        )
+        original = manifest.read_bytes()
+
+        result = tool_report_manifest(str(manifest))
+
+        assert result["ok"] is True
+        assert result["records"]["effective"] == 1
+        assert manifest.read_bytes() == original
+
+    def test_rejects_manifest_outside_workspace(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("SOUNDFETCH_MCP_ROOT", str(tmp_path / "workspace"))
+
+        result = tool_report_manifest(str(tmp_path / "outside.jsonl"))
+
+        assert result["ok"] is False
+        assert "workspace" in result["error"]
 
 
 # ---------------------------------------------------------------------------
