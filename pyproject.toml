@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "soundfetch"
-version = "0.5.0.dev0"
+version = "0.5.0"
 description = "License-aware audio dataset collection across Openverse, Freesound, Internet Archive, and video."
 readme = "README.md"
 license = "MIT"

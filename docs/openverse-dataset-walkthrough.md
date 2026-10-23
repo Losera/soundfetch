@@ -7,7 +7,7 @@ catalog results and file availability can change between runs.
 
 ## 1. Install the candidate
 
-Until 0.4.0 is published, run this from a Soundfetch checkout:
+Until 0.5.0 is published, run this from a Soundfetch checkout:
 
 ```bash
 python -m venv .venv
@@ -18,7 +18,7 @@ pip install -e ".[export]"
 After publication, the equivalent clean installation will be:
 
 ```bash
-pip install "soundfetch[export]==0.4.0"
+pip install "soundfetch[export]==0.5.0"
 ```
 
 ## 2. Discover and review

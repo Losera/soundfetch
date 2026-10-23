@@ -25,9 +25,8 @@ flowchart LR
 
 ## Status and installation
 
-Soundfetch 0.4.0 is a tagged beta candidate under active review but has not
-been published to a package index yet. Current development identifies as
-0.5.0.dev0. Until the first package-index release, install from a source
+Soundfetch 0.5.0 is a beta candidate under active review. It has not been
+tagged or published to a package index yet, so install it from a source
 checkout:
 
 ```bash
@@ -47,7 +46,7 @@ pip install -e ".[mcp]"    # MCP server
 pip install -e ".[export]" # WebDataset and audio export dependencies
 ```
 
-The 0.4.0 beta support target is Linux with Python 3.10 through 3.13, the
+The 0.5.0 beta support target is Linux with Python 3.10 through 3.13, the
 versions exercised by CI. The package declares Python 3.10 or newer, but
 Python 3.14, macOS, and Windows are not release-tested for this beta.
 
@@ -458,6 +457,6 @@ and total-size caps:
 Release preparation, wheel-only smoke tests, publishing gates, and recovery
 steps are documented in [`docs/RELEASE.md`](docs/RELEASE.md). The current beta
 evidence and remaining human gates are recorded in
-[`docs/beta-readiness-0.4.0.md`](docs/beta-readiness-0.4.0.md). Longer-term
+[`docs/beta-readiness-0.5.0.md`](docs/beta-readiness-0.5.0.md). Longer-term
 product hypotheses and sequencing are maintained in the
 [`product and workflow roadmap`](docs/product-workflow-roadmap.md).
